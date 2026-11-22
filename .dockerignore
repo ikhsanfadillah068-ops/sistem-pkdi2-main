@@ -1,0 +1,7 @@
+.git
+.github
+node_modules
+tests
+*.log
+docs
+sistem_pkdi_backup.sql
