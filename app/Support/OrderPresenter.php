@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\AuditLog;
 use App\Models\BillableTransaction;
 use App\Models\CashbookEntry;
+use App\Models\CompanyPaymentAccount;
 use App\Models\DeliveryOrder;
 use App\Models\Invoice;
 use App\Models\OperationalExpense;
@@ -126,6 +127,8 @@ class OrderPresenter
             'requested_qty' => $order->requested_quantity ?? 0,
             'unit' => $order->requested_unit,
             'po_number' => $order->po_number,
+            'po_date' => $order->po_date?->format('d M Y'),
+            'po_date_raw' => $order->po_date?->toDateString(),
             'po_attachment_path' => $order->po_attachment_path,
             'needed_date' => $order->needed_date?->format('d M Y'),
             'needed_date_raw' => $order->needed_date?->toDateString(),
@@ -148,6 +151,8 @@ class OrderPresenter
             'billing_status_meta' => config('pkdi.billing_statuses.'.($order->billing_status ?? 'NOT_READY'), ['label' => 'Belum Ditagihkan', 'tone' => 'neutral']),
             'payment_status' => $order->payment_status,
             'payment_status_meta' => config('pkdi.payment_statuses.'.($order->payment_status ?? 'UNPAID'), ['label' => 'Menunggu Bayar', 'tone' => 'warning']),
+            'payment_method' => $order->payment_method,
+            'payment_method_display' => self::formatPaymentMethodWithAccount($order->payment_method),
             'delivery_method' => $order->delivery_method,
             'delivery_method_label' => $order->delivery_method
                 ? config("pkdi.delivery_methods.{$order->delivery_method}", $order->delivery_method)
@@ -316,11 +321,18 @@ class OrderPresenter
     {
         $invoice->loadMissing([
             'clientCompany',
-            'serviceOrder',
-            'items.billableTransaction.serviceOrder',
-            'billableTransactions.serviceOrder',
+            'serviceOrder.drumProduct',
+            'serviceOrder.reconditioningService',
+            'items.billableTransaction.serviceOrder.drumProduct',
+            'items.billableTransaction.serviceOrder.reconditioningService',
+            'billableTransactions.serviceOrder.drumProduct',
+            'billableTransactions.serviceOrder.reconditioningService',
             'payments',
         ]);
+
+        $primaryOrder = $invoice->serviceOrder
+            ?? $invoice->billableTransactions->first()?->serviceOrder
+            ?? $invoice->items->first()?->billableTransaction?->serviceOrder;
 
         $orderNumbers = $invoice->billableTransactions
             ->map(static fn (BillableTransaction $tx): ?string => $tx->serviceOrder?->order_number)
@@ -329,8 +341,8 @@ class OrderPresenter
             ->values()
             ->all();
 
-        if ($orderNumbers === [] && $invoice->serviceOrder) {
-            $orderNumbers = [$invoice->serviceOrder->order_number];
+        if ($orderNumbers === [] && $primaryOrder) {
+            $orderNumbers = [$primaryOrder->order_number];
         }
 
         $txCount = max(1, count($orderNumbers), $invoice->items->count());
@@ -342,6 +354,17 @@ class OrderPresenter
             ->sortByDesc('id')
             ->first()?->verification_notes;
 
+        $packageSummary = null;
+        if ($primaryOrder) {
+            $prodName = $primaryOrder->drumProduct?->name ?? $primaryOrder->service_category ?? '-';
+            $svcName = $primaryOrder->isWasteTransport()
+                ? 'Pengangkutan Limbah'
+                : ($primaryOrder->reconditioningService?->name ?? $primaryOrder->service_type ?? '-');
+            $reqQty = $primaryOrder->requested_quantity ?? 0;
+            $reqUnit = $primaryOrder->requested_unit ?? 'Drum';
+            $packageSummary = "{$prodName} · {$svcName} ({$reqQty} {$reqUnit})";
+        }
+
         return [
             'id' => $invoice->id,
             'invoice_number' => $invoice->invoice_number,
@@ -349,12 +372,19 @@ class OrderPresenter
             'revision_number' => $invoice->revision_number,
             'status' => $invoice->status,
             'client_company_id' => $invoice->client_company_id,
-            'client_company' => $invoice->clientCompany?->company_name ?? ($invoice->serviceOrder?->origin_company_name ?? '-'),
+            'client_company' => $invoice->clientCompany?->company_name ?? ($primaryOrder?->origin_company_name ?? '-'),
+            'origin_company' => $primaryOrder?->origin_company_name ?? ($invoice->clientCompany?->company_name ?? '-'),
             'client_npwp' => $invoice->clientCompany?->npwp,
             'client_nib' => $invoice->clientCompany?->nib_number,
-            'primary_order_number' => $orderNumbers[0] ?? ($invoice->serviceOrder?->order_number ?? '-'),
-            'primary_order_slug' => $invoice->serviceOrder?->order_slug ?? (isset($orderNumbers[0]) ? PkdiDemoData::orderSlug($orderNumbers[0]) : ''),
+            'primary_order_number' => $orderNumbers[0] ?? ($primaryOrder?->order_number ?? '-'),
+            'primary_order_slug' => $primaryOrder?->order_slug ?? (isset($orderNumbers[0]) ? PkdiDemoData::orderSlug($orderNumbers[0]) : ''),
             'order_numbers' => $orderNumbers,
+            'po_number' => $primaryOrder?->po_number,
+            'po_date' => $primaryOrder?->po_date?->format('d M Y'),
+            'needed_date' => $primaryOrder?->needed_date?->format('d M Y'),
+            'package_summary' => $packageSummary,
+            'specification_notes' => $primaryOrder?->specification_notes,
+            'client_notes' => $primaryOrder?->client_notes,
             'transaction_count' => $txCount,
             'is_combined' => count($orderNumbers) > 1 || $invoice->items->count() > 1,
             'issue_date' => $invoice->issue_date?->format('d M Y') ?? '-',
@@ -367,6 +397,8 @@ class OrderPresenter
             'paid' => (float) $invoice->paid_amount,
             'balance' => (float) $invoice->balance_due,
             'payment_instructions' => $invoice->payment_instructions ?: 'Transfer ke Rekening Resmi PT Pulo Kencana Drum Industri (BCA / Mandiri) dengan mencantumkan nomor invoice.',
+            'preferred_payment_method' => $primaryOrder?->payment_method,
+            'preferred_payment_method_display' => self::formatPaymentMethodWithAccount($primaryOrder?->payment_method),
             'notes' => $invoice->notes,
             'has_pending_verification' => $hasPending,
             'has_rejected_payment' => $hasRejected,
@@ -1144,5 +1176,28 @@ class OrderPresenter
                 ],
             ],
         ];
+    }
+
+    public static function formatPaymentMethodWithAccount(?string $method): ?string
+    {
+        if (! $method || trim($method) === '') {
+            return null;
+        }
+
+        try {
+            $acc = CompanyPaymentAccount::query()
+                ->where('is_active', true)
+                ->where('payment_method', $method)
+                ->latest('id')
+                ->first();
+
+            if ($acc) {
+                return "{$method} — {$acc->account_number} (a.n. {$acc->account_holder})";
+            }
+        } catch (\Throwable) {
+            // Fallback ke nama metode jika tabel belum tersedia.
+        }
+
+        return $method;
     }
 }

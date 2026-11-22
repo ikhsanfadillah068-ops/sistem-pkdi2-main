@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Preview;
 
 use App\Http\Controllers\Controller;
 use App\Models\ClientCompany;
+use App\Models\CompanyPaymentAccount;
 use App\Models\DrumProduct;
 use App\Models\Invoice;
 use App\Models\Payment;
@@ -19,6 +20,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -52,6 +54,8 @@ class ClientPreviewController extends Controller
             'companyName' => $request->user()?->companyDisplay() ?? 'PT Maju Jaya Kimia',
             'drumProducts' => DrumProduct::query()->active()->get(),
             'reconditioningServices' => ReconditioningService::query()->active()->get(),
+            'paymentMethodGroups' => config('pkdi.payment_methods', []),
+            'paymentAccounts' => CompanyPaymentAccount::query()->active()->get(),
         ]);
     }
 
@@ -61,6 +65,8 @@ class ClientPreviewController extends Controller
         $user = $request->user();
         Gate::authorize('create', ServiceOrder::class);
 
+        $allowedPaymentMethods = array_merge(...array_values(config('pkdi.payment_methods', [])));
+
         $validated = $request->validate([
             'transaction_type' => ['required', 'string', 'in:WASTE_TRANSPORT,RECONDITIONING,DRUM_SALE'],
             'drum_product_id' => ['required', 'integer', 'exists:drum_products,id'],
@@ -69,9 +75,11 @@ class ClientPreviewController extends Controller
             'requested_quantity' => ['required', 'integer', 'min:1', 'max:100000'],
             'requested_unit' => ['required', 'string', 'min:1', 'max:30'],
             'needed_date' => ['nullable', 'date'],
+            'po_date' => ['nullable', 'date'],
+            'payment_method' => ['nullable', 'string', 'max:50', Rule::in($allowedPaymentMethods)],
             'po_number' => ['nullable', 'string', 'max:80'],
             'po_attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
-            'origin_company_name' => ['required', 'string', 'min:3', 'max:200'],
+            'origin_company_name' => ['nullable', 'string', 'min:3', 'max:200'],
             'specification_notes' => ['nullable', 'string', 'max:2000'],
             'client_notes' => ['nullable', 'string', 'max:2000'],
             'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
@@ -86,14 +94,20 @@ class ClientPreviewController extends Controller
             'requested_quantity.integer' => 'Jumlah kuantitas harus berupa angka bulat.',
             'requested_quantity.min' => 'Jumlah kuantitas minimal 1.',
             'requested_unit.required' => 'Satuan produk wajib diisi.',
-            'needed_date.date' => 'Format tanggal kebutuhan tidak valid.',
-            'origin_company_name.required' => 'Asal perusahaan / PT wajib diisi.',
+            'needed_date.date' => 'Format tanggal penyerahan tidak valid.',
+            'po_date.date' => 'Format tanggal PO tidak valid.',
+            'payment_method.in' => 'Jenis pembayaran yang dipilih tidak tersedia.',
             'origin_company_name.min' => 'Asal perusahaan / PT minimal 3 karakter.',
             'po_attachment.mimes' => 'Dokumen PO harus berformat PDF, JPG, atau PNG.',
             'po_attachment.max' => 'Ukuran dokumen PO maksimal 5 MB.',
             'attachment.mimes' => 'Lampiran dokumen/foto harus berformat PDF, JPG, atau PNG.',
             'attachment.max' => 'Ukuran lampiran maksimal 5 MB.',
         ]);
+
+        if (empty($validated['origin_company_name']) || trim((string) $validated['origin_company_name']) === '') {
+            $validated['origin_company_name'] = $user->clientCompany?->company_name
+                ?: ($user->companyDisplay() ?: $user->name);
+        }
 
         $order = $workflow->createOrder(
             client: $user,
@@ -148,6 +162,8 @@ class ClientPreviewController extends Controller
 
         return view('client.invoices.show', [
             'invoice' => OrderPresenter::invoiceToArray($dbInvoice),
+            'paymentMethodGroups' => config('pkdi.payment_methods', []),
+            'paymentAccounts' => CompanyPaymentAccount::query()->active()->get(),
         ]);
     }
 

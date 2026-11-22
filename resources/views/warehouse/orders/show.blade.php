@@ -103,12 +103,16 @@
                         <dd class="mt-1 font-semibold tabular-nums">{{ $order['requested_qty'] }} {{ $order['unit'] }}</dd>
                     </div>
                     <div>
-                        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Nomor PO</dt>
-                        <dd class="mt-1 font-medium tabular-nums">{{ $order['po_number'] ?? '-' }}</dd>
+                        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Nomor & Tanggal PO</dt>
+                        <dd class="mt-1 font-medium tabular-nums">{{ $order['po_number'] ?? '-' }}@if (!empty($order['po_date'])) · {{ $order['po_date'] }}@endif</dd>
                     </div>
                     <div>
-                        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tanggal Kebutuhan</dt>
+                        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tanggal Penyerahan / Terima</dt>
                         <dd class="mt-1 font-medium tabular-nums">{{ $order['needed_date'] ?? '-' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Jenis Pembayaran</dt>
+                        <dd class="mt-1 font-medium">{{ $order['payment_method_display'] ?? ($order['payment_method'] ?: 'Belum dipilih') }}</dd>
                     </div>
                     <div class="sm:col-span-2">
                         <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Spesifikasi & Catatan Client</dt>
@@ -120,23 +124,6 @@
                         </dd>
                     </div>
                 </dl>
-
-                @if (!empty($order['po_attachment_path']) || !empty($order['attachment_path']))
-                    <div class="mt-5 flex flex-wrap gap-2 border-t pt-4">
-                        @if (!empty($order['po_attachment_path']))
-                            <a href="{{ route('orders.attachments.show', ['code' => $orderSlug, 'type' => 'po']) }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
-                                <x-ui.icon name="file-text" />
-                                Lihat Dokumen PO
-                            </a>
-                        @endif
-                        @if (!empty($order['attachment_path']))
-                            <a href="{{ route('orders.attachments.show', ['code' => $orderSlug, 'type' => 'client']) }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
-                                <x-ui.icon name="image" />
-                                Lihat Lampiran / Foto Client
-                            </a>
-                        @endif
-                    </div>
-                @endif
             </x-ui.card>
 
             {{-- TAHAP 1: TINJAUAN AWAL KEPALA GUDANG --}}

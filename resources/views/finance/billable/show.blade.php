@@ -24,14 +24,26 @@
     </div>
 
     <div class="grid gap-6 lg:grid-cols-2">
-        <x-ui.detail-list title="Hasil Pekerjaan Aktual Kepala Gudang" description="Menjadi dasar resmi perhitungan kuantitas yang ditagihkan." :items="[
-            ['label' => 'Perusahaan Client', 'value' => $order['client_company']],
-            ['label' => 'Jenis Jasa Aktual', 'value' => $order['result']['actual_service_type'] ?? $order['service_type']],
-            ['label' => 'Kuantitas Selesai (Ditagihkan)', 'value' => $completedQty.' '.$order['unit']],
-            ['label' => 'Tidak Layak / Tidak Selesai', 'value' => ($order['result']['rejected_qty'] ?? 0).' '.$order['unit']],
-            ['label' => 'Permintaan Awal Client', 'value' => $order['requested_qty'].' '.$order['unit'].' ('.$order['service_category'].')'],
-            ['label' => 'Catatan Kepala Gudang', 'value' => $order['result']['notes'] ?? '-'],
-        ]" />
+        <div class="space-y-6">
+            <x-ui.detail-list title="Informasi Administrasi & Rincian Pesanan" description="Data pesanan dari Client untuk kelengkapan penagihan dan verifikasi pembayaran." :items="[
+                ['label' => 'Perusahaan Pemohon (PT / CV)', 'value' => $order['origin_company'] ?: $order['client_company']],
+                ['label' => 'Rincian Kemasan & Paket Layanan', 'value' => $order['product_name'].' · '.$order['service_type'].' ('.$order['requested_qty'].' '.$order['unit'].')'],
+                ['label' => 'Nomor Purchase Order (PO)', 'value' => $order['po_number'] ?: '-'],
+                ['label' => 'Tanggal PO', 'value' => $order['po_date'] ?: '-'],
+                ['label' => 'Tanggal Penyerahan / Terima', 'value' => $order['needed_date'] ?: '-'],
+                ['label' => 'Jenis Pembayaran', 'value' => $order['payment_method_display'] ?? ($order['payment_method'] ?: 'Belum dipilih')],
+                ['label' => 'Jenis Limbah / Bekas Isi Kemasan', 'value' => $order['cargo_type'] ?: '-'],
+                ['label' => 'Spesifikasi & Permintaan Penanganan', 'value' => $order['specification_notes'] ?: '-'],
+                ['label' => 'Catatan Lokasi Penjemputan / Tambahan', 'value' => $order['client_notes'] ?: '-'],
+            ]" />
+
+            <x-ui.detail-list title="Hasil Pekerjaan Aktual Kepala Gudang" description="Menjadi dasar resmi perhitungan kuantitas yang ditagihkan." :items="[
+                ['label' => 'Jenis Jasa Aktual', 'value' => $order['result']['actual_service_type'] ?? $order['service_type']],
+                ['label' => 'Kuantitas Selesai (Ditagihkan)', 'value' => $completedQty.' '.$order['unit']],
+                ['label' => 'Tidak Layak / Tidak Selesai', 'value' => ($order['result']['rejected_qty'] ?? 0).' '.$order['unit']],
+                ['label' => 'Catatan Kepala Gudang', 'value' => $order['result']['notes'] ?? '-'],
+            ]" />
+        </div>
 
         <x-ui.card title="Rincian & Penerbitan Invoice ke Client">
             <form action="{{ route('finance.billable.store', $orderSlug) }}" method="POST" class="space-y-4" novalidate data-validate-form data-prevent-double-submit data-invoice-calc data-tariff-prices="{{ json_encode($tariffPrices) }}">

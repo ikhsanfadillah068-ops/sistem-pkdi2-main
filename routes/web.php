@@ -92,6 +92,10 @@ Route::middleware(['auth', 'active.user'])->group(function (): void {
         Route::post('/tariffs', [FinancePreviewController::class, 'tariffsStore'])->name('tariffs.store');
         Route::put('/tariffs/{tariff}', [FinancePreviewController::class, 'tariffsUpdate'])->name('tariffs.update');
         Route::delete('/tariffs/{tariff}', [FinancePreviewController::class, 'tariffsDestroy'])->name('tariffs.destroy');
+        Route::get('/payment-accounts', [FinancePreviewController::class, 'paymentAccountsIndex'])->name('payment-accounts.index');
+        Route::post('/payment-accounts', [FinancePreviewController::class, 'paymentAccountsStore'])->name('payment-accounts.store');
+        Route::put('/payment-accounts/{account}', [FinancePreviewController::class, 'paymentAccountsUpdate'])->name('payment-accounts.update');
+        Route::delete('/payment-accounts/{account}', [FinancePreviewController::class, 'paymentAccountsDestroy'])->name('payment-accounts.destroy');
         Route::get('/expenses', [FinancePreviewController::class, 'expensesIndex'])->name('expenses.index');
         Route::post('/expenses', [FinancePreviewController::class, 'expensesStore'])->name('expenses.store');
         Route::get('/cashbook', [FinancePreviewController::class, 'cashbookIndex'])->name('cashbook.index');

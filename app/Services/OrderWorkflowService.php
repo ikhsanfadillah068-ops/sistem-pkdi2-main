@@ -91,8 +91,14 @@ class OrderWorkflowService
         $poNumber = isset($validated['po_number']) && trim((string) $validated['po_number']) !== ''
             ? trim((string) $validated['po_number'])
             : null;
+        $poDate = isset($validated['po_date']) && trim((string) $validated['po_date']) !== ''
+            ? trim((string) $validated['po_date'])
+            : null;
         $neededDate = isset($validated['needed_date']) && trim((string) $validated['needed_date']) !== ''
             ? trim((string) $validated['needed_date'])
+            : null;
+        $paymentMethod = isset($validated['payment_method']) && trim((string) $validated['payment_method']) !== ''
+            ? trim((string) $validated['payment_method'])
             : null;
         $specificationNotes = isset($validated['specification_notes']) && trim((string) $validated['specification_notes']) !== ''
             ? trim((string) $validated['specification_notes'])
@@ -129,8 +135,10 @@ class OrderWorkflowService
             $requestedQty,
             $requestedUnit,
             $poNumber,
+            $poDate,
             $poAttachmentPath,
             $neededDate,
+            $paymentMethod,
             $originCompany,
             $vehicleType,
             $licensePlate,
@@ -156,6 +164,7 @@ class OrderWorkflowService
                 'requested_quantity' => $requestedQty,
                 'requested_unit' => $requestedUnit,
                 'po_number' => $poNumber,
+                'po_date' => $poDate,
                 'po_attachment_path' => $poAttachmentPath,
                 'needed_date' => $neededDate,
                 'origin_company_name' => $originCompany,
@@ -170,6 +179,7 @@ class OrderWorkflowService
                 'warehouse_status' => 'PENDING_REVIEW',
                 'billing_status' => 'NOT_READY',
                 'payment_status' => 'UNPAID',
+                'payment_method' => $paymentMethod,
                 'submitted_at' => now(),
             ]);
 

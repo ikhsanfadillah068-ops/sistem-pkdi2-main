@@ -40,6 +40,7 @@ class ServiceOrder extends Model
         'requested_quantity',
         'requested_unit',
         'po_number',
+        'po_date',
         'po_attachment_path',
         'needed_date',
         'scheduled_pickup_date',
@@ -58,6 +59,7 @@ class ServiceOrder extends Model
         'warehouse_status',
         'billing_status',
         'payment_status',
+        'payment_method',
         'delivery_method',
         'delivered_quantity',
         'delivered_at',
@@ -74,6 +76,7 @@ class ServiceOrder extends Model
         return [
             'requested_quantity' => 'integer',
             'delivered_quantity' => 'integer',
+            'po_date' => 'date',
             'needed_date' => 'date',
             'scheduled_pickup_date' => 'date',
             'delivered_at' => 'datetime',

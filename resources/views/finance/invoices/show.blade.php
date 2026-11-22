@@ -213,11 +213,11 @@
                 </x-ui.card>
             @endif
 
-            <x-ui.card title="Identitas & Instruksi Transfer">
+            <x-ui.card title="Informasi Administrasi & Rekening Pembayaran">
                 <dl class="space-y-3 text-sm">
                     <div>
-                        <dt class="text-xs text-muted-foreground">Perusahaan Client</dt>
-                        <dd class="mt-0.5 font-medium">{{ $inv['client_company'] }}</dd>
+                        <dt class="text-xs text-muted-foreground">Perusahaan Pemohon (PT / CV)</dt>
+                        <dd class="mt-0.5 font-medium">{{ $inv['origin_company'] ?? $inv['client_company'] }}</dd>
                     </div>
                     @if (!empty($inv['client_npwp']))
                         <div>
@@ -225,9 +225,64 @@
                             <dd class="mt-0.5 tabular-nums">{{ $inv['client_npwp'] }}</dd>
                         </div>
                     @endif
+                    @if (!empty($inv['package_summary']))
+                        <div>
+                            <dt class="text-xs text-muted-foreground">Rincian Kemasan & Paket Layanan</dt>
+                            <dd class="mt-0.5 font-medium">{{ $inv['package_summary'] }}</dd>
+                        </div>
+                    @endif
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <dt class="text-xs text-muted-foreground">Nomor PO</dt>
+                            <dd class="mt-0.5 font-medium tabular-nums">{{ $inv['po_number'] ?? '-' }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs text-muted-foreground">Tanggal PO</dt>
+                            <dd class="mt-0.5 font-medium tabular-nums">{{ $inv['po_date'] ?? '-' }}</dd>
+                        </div>
+                    </div>
                     <div>
-                        <dt class="text-xs text-muted-foreground">Instruksi Transfer Bank</dt>
-                        <dd class="mt-0.5 text-muted-foreground leading-relaxed">{{ $inv['payment_instructions'] }}</dd>
+                        <dt class="text-xs text-muted-foreground">Tanggal Penyerahan / Terima</dt>
+                        <dd class="mt-0.5 font-medium tabular-nums">{{ $inv['needed_date'] ?? '-' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs text-muted-foreground">Jenis Pembayaran (Virtual Account)</dt>
+                        <dd class="mt-0.5 font-medium">{{ $inv['preferred_payment_method_display'] ?? ($inv['preferred_payment_method'] ?: 'Belum dipilih') }}</dd>
+                    </div>
+                    @if (!empty($inv['specification_notes']) || !empty($inv['client_notes']))
+                        <div class="border-t pt-3 space-y-2">
+                            @if (!empty($inv['specification_notes']))
+                                <div>
+                                    <dt class="text-xs text-muted-foreground">Spesifikasi & Permintaan Penanganan</dt>
+                                    <dd class="mt-0.5 text-xs text-foreground">{{ $inv['specification_notes'] }}</dd>
+                                </div>
+                            @endif
+                            @if (!empty($inv['client_notes']))
+                                <div>
+                                    <dt class="text-xs text-muted-foreground">Catatan Lokasi Penjemputan / Tambahan</dt>
+                                    <dd class="mt-0.5 text-xs text-foreground">{{ $inv['client_notes'] }}</dd>
+                                </div>
+                            @endif
+                        </div>
+                    @endif
+                    <div class="border-t pt-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <dt class="text-xs text-muted-foreground">Rekening Perusahaan Aktif</dt>
+                            <a href="{{ route('finance.payment-accounts.index') }}" class="text-xs font-medium text-primary hover:underline">Kelola Rekening</a>
+                        </div>
+                        <dd class="mt-2 space-y-2">
+                            @if (isset($paymentAccounts) && $paymentAccounts->isNotEmpty())
+                                @foreach ($paymentAccounts as $acc)
+                                    <div class="rounded-lg border px-3 py-2 text-xs">
+                                        <p class="font-semibold text-foreground">{{ $acc->payment_method }} · {{ $acc->provider_name }}</p>
+                                        <p class="mt-0.5 font-mono font-medium tabular-nums text-foreground">{{ $acc->account_number }}</p>
+                                        <p class="text-muted-foreground">a.n. {{ $acc->account_holder }}</p>
+                                    </div>
+                                @endforeach
+                            @else
+                                <p class="text-xs text-muted-foreground">Belum ada rekening perusahaan terdaftar. <a href="{{ route('finance.payment-accounts.index') }}" class="font-medium text-primary hover:underline">Tambahkan di menu Rekening Pembayaran</a>.</p>
+                            @endif
+                        </dd>
                     </div>
                     @if (!empty($inv['notes']))
                         <div class="border-t pt-3">

@@ -447,14 +447,28 @@ class ReportExportService
         }
 
         // Totals Summary Box on Right + Payment Note Box on Left
+        $activeAccounts = \App\Models\CompanyPaymentAccount::query()->active()->limit(3)->get();
+
         $summaryTop = $y - 14.0;
         $ops[] = $this->pdfRect(36, $summaryTop - 118, 255, 118, '0.976 0.976 0.980', '0.86 0.86 0.89', 0.5);
-        $ops[] = $this->pdfText(48, $summaryTop - 18, 'INSTRUKSI TRANSFER & PEMBAYARAN', 'F2', 8, '0.35 0.35 0.40');
-        $ops[] = $this->pdfText(48, $summaryTop - 34, '1. Transfer sesuai nominal Total Tagihan ke rekening PKDI.', 'F1', 7.8, '0.25 0.25 0.30');
-        $ops[] = $this->pdfText(48, $summaryTop - 48, '2. Unggah bukti transfer melalui Portal Client PKDI.', 'F1', 7.8, '0.25 0.25 0.30');
-        $ops[] = $this->pdfText(48, $summaryTop - 62, '3. Status Lunas sah setelah diverifikasi divisi Keuangan.', 'F1', 7.8, '0.25 0.25 0.30');
-        if ($invoice->notes) {
-            $ops[] = $this->pdfText(48, $summaryTop - 82, 'Catatan: '.mb_strimwidth((string) $invoice->notes, 0, 46, '...'), 'F2', 7.8, '0.20 0.20 0.25');
+        $ops[] = $this->pdfText(48, $summaryTop - 18, 'REKENING & INSTRUKSI PEMBAYARAN PKDI', 'F2', 8, '0.35 0.35 0.40');
+        if ($activeAccounts->isNotEmpty()) {
+            $accY = $summaryTop - 34;
+            foreach ($activeAccounts as $acc) {
+                $line1 = mb_strimwidth("{$acc->payment_method}: {$acc->account_number}", 0, 48, '...');
+                $line2 = mb_strimwidth("a.n. {$acc->account_holder}", 0, 48, '...');
+                $ops[] = $this->pdfText(48, $accY, $line1, 'F2', 7.6, '0.18 0.18 0.22');
+                $ops[] = $this->pdfText(48, $accY - 10, $line2, 'F1', 7.2, '0.35 0.35 0.40');
+                $accY -= 24;
+            }
+            $ops[] = $this->pdfText(48, $summaryTop - 108, 'Unggah bukti pembayaran melalui Portal Client PKDI.', 'F1', 7.4, '0.25 0.25 0.30');
+        } else {
+            $ops[] = $this->pdfText(48, $summaryTop - 34, '1. Bayar sesuai nominal Total Tagihan ke rekening PKDI.', 'F1', 7.8, '0.25 0.25 0.30');
+            $ops[] = $this->pdfText(48, $summaryTop - 48, '2. Unggah bukti pembayaran melalui Portal Client PKDI.', 'F1', 7.8, '0.25 0.25 0.30');
+            $ops[] = $this->pdfText(48, $summaryTop - 62, '3. Status Lunas sah setelah diverifikasi divisi Keuangan.', 'F1', 7.8, '0.25 0.25 0.30');
+            if ($invoice->notes) {
+                $ops[] = $this->pdfText(48, $summaryTop - 82, 'Catatan: '.mb_strimwidth((string) $invoice->notes, 0, 46, '...'), 'F2', 7.8, '0.20 0.20 0.25');
+            }
         }
 
         $summaryRows = [

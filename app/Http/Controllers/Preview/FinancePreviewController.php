@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Preview;
 
 use App\Http\Controllers\Controller;
 use App\Models\ClientCompany;
+use App\Models\CompanyPaymentAccount;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\ServiceOrder;
@@ -11,10 +12,12 @@ use App\Models\ServiceTariff;
 use App\Models\User;
 use App\Services\BillingAndExitWorkflowService;
 use App\Services\ReportExportService;
+use App\Support\AuditLogger;
 use App\Support\OrderPresenter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -189,6 +192,7 @@ class FinancePreviewController extends Controller
 
         return view('finance.invoices.show', [
             'invoice' => OrderPresenter::invoiceToArray($dbInvoice),
+            'paymentAccounts' => CompanyPaymentAccount::query()->active()->get(),
         ]);
     }
 
@@ -499,5 +503,141 @@ class FinancePreviewController extends Controller
         }
 
         return $exporter->exportReportPdf($dataset);
+    }
+
+    public function paymentAccountsIndex(Request $request): View
+    {
+        return view('finance.payment-accounts.index', [
+            'accounts' => CompanyPaymentAccount::query()
+                ->orderByDesc('is_active')
+                ->orderBy('category')
+                ->orderBy('payment_method')
+                ->orderBy('id')
+                ->get(),
+            'paymentMethodGroups' => config('pkdi.payment_methods', []),
+        ]);
+    }
+
+    public function paymentAccountsStore(Request $request): RedirectResponse
+    {
+        /** @var User $keuangan */
+        $keuangan = $request->user();
+        $allowedMethods = array_merge(...array_values(config('pkdi.payment_methods', [])));
+
+        $validated = $request->validate([
+            'payment_method' => ['required', 'string', 'max:50', Rule::in($allowedMethods)],
+            'provider_name' => ['required', 'string', 'min:2', 'max:80'],
+            'account_number' => ['required', 'string', 'min:3', 'max:80'],
+            'account_holder' => ['required', 'string', 'min:3', 'max:150'],
+            'instructions' => ['nullable', 'string', 'max:1000'],
+            'is_active' => ['nullable', 'boolean'],
+        ], [
+            'payment_method.required' => 'Jenis pembayaran wajib dipilih.',
+            'payment_method.in' => 'Jenis pembayaran tidak valid.',
+            'provider_name.required' => 'Nama bank / penyedia wajib diisi.',
+            'account_number.required' => 'Nomor rekening / Virtual Account / akun wajib diisi.',
+            'account_holder.required' => 'Nama pemilik rekening (atas nama) wajib diisi.',
+        ]);
+
+        $account = CompanyPaymentAccount::query()->create([
+            'payment_method' => $validated['payment_method'],
+            'category' => CompanyPaymentAccount::categoryForMethod($validated['payment_method']),
+            'provider_name' => trim($validated['provider_name']),
+            'account_number' => trim($validated['account_number']),
+            'account_holder' => trim($validated['account_holder']),
+            'instructions' => isset($validated['instructions']) && trim((string) $validated['instructions']) !== ''
+                ? trim((string) $validated['instructions'])
+                : null,
+            'is_active' => $request->boolean('is_active', true),
+            'created_by_user_id' => $keuangan->id,
+            'updated_by_user_id' => $keuangan->id,
+        ]);
+
+        AuditLogger::record(
+            action: 'PAYMENT_ACCOUNT_CREATED',
+            auditable: $account,
+            newValues: $account->only(['payment_method', 'category', 'provider_name', 'account_number', 'account_holder', 'is_active']),
+            actor: $keuangan,
+            request: $request,
+        );
+
+        return redirect()
+            ->route('finance.payment-accounts.index')
+            ->with('status', "Rekening pembayaran {$account->payment_method} ({$account->account_number}) berhasil disimpan.");
+    }
+
+    public function paymentAccountsUpdate(Request $request, CompanyPaymentAccount $account): RedirectResponse
+    {
+        /** @var User $keuangan */
+        $keuangan = $request->user();
+        $allowedMethods = array_merge(...array_values(config('pkdi.payment_methods', [])));
+
+        $validated = $request->validate([
+            'payment_method' => ['required', 'string', 'max:50', Rule::in($allowedMethods)],
+            'provider_name' => ['required', 'string', 'min:2', 'max:80'],
+            'account_number' => ['required', 'string', 'min:3', 'max:80'],
+            'account_holder' => ['required', 'string', 'min:3', 'max:150'],
+            'instructions' => ['nullable', 'string', 'max:1000'],
+            'is_active' => ['nullable', 'boolean'],
+        ], [
+            'payment_method.required' => 'Jenis pembayaran wajib dipilih.',
+            'payment_method.in' => 'Jenis pembayaran tidak valid.',
+            'provider_name.required' => 'Nama bank / penyedia wajib diisi.',
+            'account_number.required' => 'Nomor rekening / Virtual Account / akun wajib diisi.',
+            'account_holder.required' => 'Nama pemilik rekening (atas nama) wajib diisi.',
+        ]);
+
+        $oldValues = $account->only(['payment_method', 'category', 'provider_name', 'account_number', 'account_holder', 'instructions', 'is_active']);
+
+        $account->update([
+            'payment_method' => $validated['payment_method'],
+            'category' => CompanyPaymentAccount::categoryForMethod($validated['payment_method']),
+            'provider_name' => trim($validated['provider_name']),
+            'account_number' => trim($validated['account_number']),
+            'account_holder' => trim($validated['account_holder']),
+            'instructions' => isset($validated['instructions']) && trim((string) $validated['instructions']) !== ''
+                ? trim((string) $validated['instructions'])
+                : null,
+            'is_active' => $request->boolean('is_active'),
+            'updated_by_user_id' => $keuangan->id,
+        ]);
+
+        AuditLogger::record(
+            action: 'PAYMENT_ACCOUNT_UPDATED',
+            auditable: $account,
+            oldValues: $oldValues,
+            newValues: $account->only(['payment_method', 'category', 'provider_name', 'account_number', 'account_holder', 'instructions', 'is_active']),
+            actor: $keuangan,
+            request: $request,
+        );
+
+        return redirect()
+            ->route('finance.payment-accounts.index')
+            ->with('status', "Rekening pembayaran {$account->payment_method} ({$account->account_number}) berhasil diperbarui.");
+    }
+
+    public function paymentAccountsDestroy(Request $request, CompanyPaymentAccount $account): RedirectResponse
+    {
+        /** @var User $keuangan */
+        $keuangan = $request->user();
+
+        $oldValues = $account->only(['payment_method', 'category', 'provider_name', 'account_number', 'account_holder', 'is_active']);
+        $label = "{$account->payment_method} ({$account->account_number})";
+        $accountId = (int) $account->id;
+
+        $account->delete();
+
+        AuditLogger::record(
+            action: 'PAYMENT_ACCOUNT_DELETED',
+            auditable: 'CompanyPaymentAccount',
+            auditableId: $accountId,
+            oldValues: $oldValues,
+            actor: $keuangan,
+            request: $request,
+        );
+
+        return redirect()
+            ->route('finance.payment-accounts.index')
+            ->with('status', "Rekening pembayaran {$label} berhasil dihapus.");
     }
 }

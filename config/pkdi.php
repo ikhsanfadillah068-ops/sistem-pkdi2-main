@@ -27,6 +27,28 @@ return [
         'DIAMBIL_CLIENT' => 'Diambil oleh Client',
     ],
 
+    'payment_methods' => [
+        'Virtual Account' => [
+            'Virtual Account BCA',
+            'Virtual Account Mandiri',
+            'Virtual Account BRI',
+            'Virtual Account BNI',
+            'Virtual Account BSI',
+        ],
+        'E-Wallet & QRIS' => [
+            'QRIS',
+            'GoPay',
+            'OVO',
+            'DANA',
+            'ShopeePay',
+            'LinkAja',
+        ],
+        'Lainnya' => [
+            'Giro / Cek Perusahaan',
+            'Tunai (Cash)',
+        ],
+    ],
+
     'reconditioning_stage_presets' => [
         'Laundry' => [
             'Pencucian Interior & Eksterior',
@@ -135,6 +157,7 @@ return [
                     ['label' => 'Ringkasan Keuangan', 'route' => 'finance.dashboard', 'active' => 'finance.dashboard', 'icon' => 'dashboard'],
                     ['label' => 'Antrean Hitung Tagihan', 'route' => 'finance.billable.index', 'active' => 'finance.billable.*', 'icon' => 'clipboard-check'],
                     ['label' => 'Invoice & Verifikasi Bayar', 'route' => 'finance.invoices.index', 'active' => 'finance.invoices.*', 'icon' => 'receipt'],
+                    ['label' => 'Rekening Pembayaran', 'route' => 'finance.payment-accounts.index', 'active' => 'finance.payment-accounts.*', 'icon' => 'card'],
                     ['label' => 'Referensi Tarif Jasa', 'route' => 'finance.tariffs.index', 'active' => 'finance.tariffs.*', 'icon' => 'tag'],
                 ],
             ],

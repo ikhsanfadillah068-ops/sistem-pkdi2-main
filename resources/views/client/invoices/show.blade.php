@@ -147,8 +147,42 @@
         </div>
 
         <div class="space-y-6">
-            <x-ui.card title="Instruksi Transfer Bank Resmi">
-                <p class="text-sm leading-relaxed text-muted-foreground">{{ $inv['payment_instructions'] }}</p>
+            <x-ui.card title="Rekening & Kanal Pembayaran Resmi" description="Lakukan pembayaran ke salah satu rekening / kanal resmi PT PKDI di bawah ini.">
+                @if (isset($paymentAccounts) && $paymentAccounts->isNotEmpty())
+                    <div class="space-y-3">
+                        @foreach ($paymentAccounts as $acc)
+                            @php
+                                $isPreferred = !empty($inv['preferred_payment_method']) && $inv['preferred_payment_method'] === $acc->payment_method;
+                            @endphp
+                            <div class="rounded-lg border p-3.5 {{ $isPreferred ? 'border-primary bg-soft' : '' }}">
+                                <div class="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                        <p class="text-sm font-semibold text-foreground">{{ $acc->payment_method }}</p>
+                                        <p class="text-xs text-muted-foreground">{{ $acc->category }} · {{ $acc->provider_name }}</p>
+                                    </div>
+                                    @if ($isPreferred)
+                                        <x-ui.badge variant="info">Pilihan Pesanan</x-ui.badge>
+                                    @endif
+                                </div>
+                                <div class="mt-2.5 flex items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
+                                    <span class="font-mono text-sm font-semibold tabular-nums text-foreground">{{ $acc->account_number }}</span>
+                                    <button type="button"
+                                        class="btn btn-outline btn-sm"
+                                        data-copy="{{ $acc->account_number }}">
+                                        <x-ui.icon name="copy" class="h-3.5 w-3.5" />
+                                        Salin
+                                    </button>
+                                </div>
+                                <p class="mt-2 text-xs text-muted-foreground">a.n. <strong class="text-foreground">{{ $acc->account_holder }}</strong></p>
+                                @if (!empty($acc->instructions))
+                                    <p class="mt-1 text-xs leading-relaxed text-muted-foreground">{{ $acc->instructions }}</p>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                @else
+                    <p class="text-sm leading-relaxed text-muted-foreground">{{ $inv['payment_instructions'] }}</p>
+                @endif
             </x-ui.card>
 
             <x-ui.card title="Kirim Bukti Pembayaran">
@@ -166,17 +200,56 @@
                         <x-ui.field label="Nominal Pembayaran (Rp)" name="amount" :error="$errors->first('amount')" required>
                             <x-ui.input name="amount" type="number" min="1" :value="old('amount', (int) $inv['balance'])" required />
                         </x-ui.field>
-                        <x-ui.field label="Tanggal Transfer" name="payment_date" :error="$errors->first('payment_date')" required>
+                        <x-ui.field label="Tanggal Pembayaran" name="payment_date" :error="$errors->first('payment_date')" required>
                             <x-ui.input name="payment_date" type="date" :value="old('payment_date', now('Asia/Jakarta')->toDateString())" required />
                         </x-ui.field>
-                        <x-ui.field label="Metode / Bank Pengirim" name="payment_method" :error="$errors->first('payment_method')" required>
-                            <x-ui.input name="payment_method" :value="old('payment_method')" placeholder="Transfer Bank BCA / Mandiri" required />
+                        @php
+                            $invoicePaymentGroups = $paymentMethodGroups ?? config('pkdi.payment_methods', []);
+                            $selectedInvoicePayMethod = old('payment_method', $inv['preferred_payment_method'] ?? '');
+                            $invoiceAccountsByMethod = collect($paymentAccounts ?? [])->keyBy('payment_method');
+                            $selectedInvoiceAcc = $selectedInvoicePayMethod !== '' ? $invoiceAccountsByMethod->get($selectedInvoicePayMethod) : null;
+                        @endphp
+                        <x-ui.field label="Jenis Pembayaran" name="payment_method" :error="$errors->first('payment_method')" required>
+                            <select id="f-payment_method" name="payment_method" class="select @error('payment_method') input-invalid @enderror" required>
+                                <option value="">Pilih jenis pembayaran (Virtual Account, E-Wallet, QRIS, dll.)</option>
+                                @foreach ($invoicePaymentGroups as $groupLabel => $methods)
+                                    <optgroup label="{{ $groupLabel }}">
+                                        @foreach ($methods as $method)
+                                            @php
+                                                $acc = $invoiceAccountsByMethod->get($method);
+                                            @endphp
+                                            <option value="{{ $method }}"
+                                                data-account-number="{{ $acc?->account_number }}"
+                                                data-account-holder="{{ $acc?->account_holder }}"
+                                                data-provider="{{ $acc?->provider_name }}"
+                                                @selected($selectedInvoicePayMethod === $method)>
+                                                {{ $method }}@if ($acc) — {{ $acc->account_number }} (a.n. {{ $acc->account_holder }})@endif
+                                            </option>
+                                        @endforeach
+                                    </optgroup>
+                                @endforeach
+                            </select>
+                            <div id="invoice-selected-account-box" class="mt-2.5 rounded-lg border bg-soft p-3 text-xs" @if (! $selectedInvoiceAcc) hidden @endif>
+                                <div class="flex items-center justify-between gap-2">
+                                    <div>
+                                        <p class="text-muted-foreground">
+                                            <span id="inv-acc-provider" class="font-medium text-foreground">{{ $selectedInvoiceAcc?->provider_name }}</span>
+                                            · a.n. <strong id="inv-acc-holder" class="text-foreground">{{ $selectedInvoiceAcc?->account_holder }}</strong>
+                                        </p>
+                                        <p id="inv-acc-number" class="mt-0.5 font-mono text-sm font-semibold tabular-nums text-foreground">{{ $selectedInvoiceAcc?->account_number }}</p>
+                                    </div>
+                                    <button type="button" id="inv-acc-copy" class="btn btn-outline btn-sm shrink-0" data-copy="{{ $selectedInvoiceAcc?->account_number }}">
+                                        <x-ui.icon name="copy" class="h-3.5 w-3.5" />
+                                        Salin
+                                    </button>
+                                </div>
+                            </div>
                         </x-ui.field>
-                        <x-ui.field label="Nomor Referensi Mutasi (Opsional)" name="reference_number" :error="$errors->first('reference_number')">
-                            <x-ui.input name="reference_number" :value="old('reference_number')" placeholder="Nomor referensi transfer bank" />
+                        <x-ui.field label="Nomor Referensi Pembayaran (Opsional)" name="reference_number" :error="$errors->first('reference_number')">
+                            <x-ui.input name="reference_number" :value="old('reference_number')" placeholder="Nomor referensi / ID transaksi" />
                         </x-ui.field>
-                        <x-ui.field label="Unggah Bukti Transfer (Wajib)" name="proof_file" :error="$errors->first('proof_file')" required help="Format PDF, JPG, atau PNG maksimal 5 MB.">
-                            <x-ui.file-preview id="client-proof-upload" name="proof_file" label="Pilih foto atau PDF bukti transfer" />
+                        <x-ui.field label="Unggah Bukti Pembayaran (Wajib)" name="proof_file" :error="$errors->first('proof_file')" required help="Format PDF, JPG, atau PNG maksimal 5 MB.">
+                            <x-ui.file-preview id="client-proof-upload" name="proof_file" label="Pilih foto atau PDF bukti pembayaran" />
                         </x-ui.field>
                         <x-ui.button type="submit" class="w-full">
                             <x-ui.icon name="upload" />
@@ -187,4 +260,34 @@
             </x-ui.card>
         </div>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var select = document.getElementById('f-payment_method');
+            var box = document.getElementById('invoice-selected-account-box');
+            var numEl = document.getElementById('inv-acc-number');
+            var holderEl = document.getElementById('inv-acc-holder');
+            var providerEl = document.getElementById('inv-acc-provider');
+            var copyBtn = document.getElementById('inv-acc-copy');
+            if (!select || !box) return;
+            var sync = function () {
+                var val = select.value || '';
+                var opt = select.options[select.selectedIndex];
+                var accNum = opt ? (opt.getAttribute('data-account-number') || '') : '';
+                var accHolder = opt ? (opt.getAttribute('data-account-holder') || '') : '';
+                var accProvider = opt ? (opt.getAttribute('data-provider') || '') : '';
+                if (val && accNum) {
+                    if (numEl) numEl.textContent = accNum;
+                    if (holderEl) holderEl.textContent = accHolder;
+                    if (providerEl) providerEl.textContent = accProvider;
+                    if (copyBtn) copyBtn.setAttribute('data-copy', accNum);
+                    box.hidden = false;
+                } else {
+                    box.hidden = true;
+                }
+            };
+            select.addEventListener('change', sync);
+            sync();
+        });
+    </script>
 </x-layouts.admin>

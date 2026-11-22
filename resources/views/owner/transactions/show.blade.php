@@ -25,7 +25,9 @@
                 ['label' => 'Jenis Transaksi', 'value' => $order['transaction_type_label']],
                 ['label' => 'Produk & Layanan', 'value' => $order['product_name'].' · '.$order['service_type']],
                 ['label' => 'Kuantitas Pengajuan', 'value' => $order['requested_qty'].' '.$order['unit']],
-                ['label' => 'Nomor PO & Tgl Kebutuhan', 'value' => ($order['po_number'] ?? '-').' · '.($order['needed_date'] ?? '-')],
+                ['label' => 'Nomor PO & Tanggal PO', 'value' => ($order['po_number'] ?? '-').' · '.($order['po_date'] ?? '-')],
+                ['label' => 'Tanggal Penyerahan', 'value' => $order['needed_date'] ?? '-'],
+                ['label' => 'Jenis Pembayaran', 'value' => $order['payment_method_display'] ?? ($order['payment_method'] ?: 'Belum dipilih')],
                 ['label' => 'Spesifikasi / Catatan', 'value' => $order['specification_notes'] ?? ($order['client_notes'] ?? '-')],
             ]" />
 
