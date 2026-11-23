@@ -21,6 +21,13 @@
             <p class="mt-1 text-sm text-muted-foreground">Diajukan {{ $order['submitted_at'] }} oleh {{ $order['client_company'] }}</p>
         </div>
         <div class="flex flex-wrap gap-2">
+            <form action="{{ route('client.orders.reorder', $order['order_slug']) }}" method="POST" class="inline" data-prevent-double-submit>
+                @csrf
+                <button type="submit" class="btn btn-primary btn-sm min-h-11 sm:min-h-8">
+                    <x-ui.icon name="refresh" class="h-4 w-4" />
+                    Pesan Ulang (1-Click Re-Order)
+                </button>
+            </form>
             <button type="button" class="btn btn-outline btn-sm min-h-11 sm:min-h-8" data-copy="{{ $order['order_number'] }}">
                 <x-ui.icon name="copy" />
                 Salin No. Pesanan
@@ -29,6 +36,93 @@
     </div>
 
     <x-ui.order-stepper :order="$order" />
+
+    {{-- FASE 3 (4.2): PERSETUJUAN DIGITAL BERITA ACARA SELISIH --}}
+    @if (!empty($order['discrepancy_report']))
+        @php
+            $ba = $order['discrepancy_report'];
+        @endphp
+        <section id="ba-selisih" class="card p-5 sm:p-6 {{ $ba['status'] === 'PENDING' ? 'border-danger/50 bg-danger-soft/20' : 'border-success/40 bg-success-soft/20' }}">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide {{ $ba['status'] === 'PENDING' ? 'text-danger' : 'text-success' }}">
+                        Berita Acara Selisih (BA Selisih) · {{ $ba['ba_number'] }}
+                    </p>
+                    <h2 class="mt-0.5 text-lg font-semibold">Perbandingan Kuantitas PO vs Aktual Gudang PKDI</h2>
+                    <p class="mt-0.5 text-xs text-muted-foreground">{{ $ba['notes'] }}</p>
+                </div>
+                <x-ui.badge :variant="$ba['status'] === 'PENDING' ? 'danger' : 'success'" :dot="true">
+                    {{ $ba['status'] === 'PENDING' ? 'Menunggu ACC Digital Anda' : 'Telah Disetujui (ACC)' }}
+                </x-ui.badge>
+            </div>
+
+            <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                <div class="rounded-lg border bg-background p-4">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Angka Pengajuan PO Anda</p>
+                    <p class="mt-1.5 text-2xl font-bold tabular-nums">{{ $ba['po_qty'] }} {{ $order['unit'] }}</p>
+                </div>
+                <div class="rounded-lg border bg-background p-4">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Angka Aktual Gate-In Gudang PKDI</p>
+                    <p class="mt-1.5 text-2xl font-bold tabular-nums">{{ $ba['total_physical_qty'] }} {{ $order['unit'] }}</p>
+                    <p class="mt-1 text-xs text-muted-foreground">
+                        Baik: <strong class="text-success">{{ $ba['actual_good_qty'] }}</strong> ·
+                        Penyok (Layak): <strong class="text-warning">{{ $ba['actual_dent_qty'] }}</strong> ·
+                        Reject / Bocor: <strong class="text-danger">{{ $ba['actual_reject_qty'] }}</strong>
+                    </p>
+                </div>
+            </div>
+
+            @if (!empty($ba['evidence_urls']) && !empty($ba['gate_log_id']))
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                    <span class="text-xs font-medium text-muted-foreground">Foto Bukti Gudang:</span>
+                    @foreach ($ba['evidence_urls'] as $idx => $url)
+                        <a href="{{ route('gate-logs.evidence.show', ['gateLog' => $ba['gate_log_id'], 'index' => $idx]) }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                            <x-ui.icon name="image" class="h-3.5 w-3.5" />
+                            Lihat Foto Bukti #{{ $idx + 1 }}
+                        </a>
+                    @endforeach
+                </div>
+            @endif
+
+            <div class="mt-4 border-t pt-4">
+                @if ($ba['status'] === 'PENDING')
+                    <form action="{{ route('client.discrepancies.approve', $ba['id']) }}" method="POST" class="flex flex-wrap items-center justify-between gap-3" data-prevent-double-submit>
+                        @csrf
+                        <p class="text-xs text-muted-foreground">
+                            Dengan menekan tombol ACC, sistem akan mencatat nama akun, alamat IP, dan waktu persetujuan Anda sebagai tanda tangan digital sah dan langsung membuka kunci transaksi.
+                        </p>
+                        <button type="submit" class="btn btn-success">
+                            <x-ui.icon name="check-circle" class="h-4 w-4" />
+                            Setujui (ACC) Berita Acara
+                        </button>
+                    </form>
+                @else
+                    <p class="text-xs font-medium text-success">
+                        Tanda Tangan Digital Sah: Disetujui oleh <strong>{{ $ba['approved_by_name'] }}</strong> pada {{ $ba['approved_at'] }} (IP: {{ $ba['approved_ip'] }}).
+                    </p>
+                @endif
+            </div>
+        </section>
+    @endif
+
+    @if (!empty($order['recondition_cert']))
+        <div class="card flex flex-wrap items-center justify-between gap-3 border-success/40 bg-success-soft/20 p-4">
+            <div>
+                <p class="text-sm font-semibold text-foreground">Sertifikat Rekondisi Resmi Tersedia: {{ $order['recondition_cert']['cert_number'] }}</p>
+                <p class="text-xs text-muted-foreground">{{ $order['recondition_cert']['qc_passed_qty'] }} {{ $order['unit'] }} Lolos QC · Selesai {{ $order['recondition_cert']['completion_date'] }}</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <a href="{{ route('orders.recondition-cert.pdf', $order['order_slug']) }}" class="btn btn-primary btn-sm">
+                    <x-ui.icon name="download" class="h-4 w-4" />
+                    Unduh Sertifikat PDF
+                </a>
+                <a href="{{ $order['recondition_cert']['verify_url'] }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                    <x-ui.icon name="shield" class="h-4 w-4" />
+                    Verifikasi QR
+                </a>
+            </div>
+        </div>
+    @endif
 
     <div class="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <x-ui.detail-list title="Informasi Pengajuan & Lokasi Penjemputan" :items="[

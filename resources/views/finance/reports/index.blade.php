@@ -75,6 +75,14 @@
                         <x-ui.icon name="file-spreadsheet" />
                         Ekspor Excel (.xlsx)
                     </a>
+                    <a href="{{ route('finance.reports.export', array_merge($exportQuery, ['format' => 'coretax'])) }}" class="btn btn-outline">
+                        <x-ui.icon name="download" />
+                        CSV Coretax / e-Faktur
+                    </a>
+                    <a href="{{ route('finance.reports.export', array_merge($exportQuery, ['format' => 'accounting'])) }}" class="btn btn-outline">
+                        <x-ui.icon name="download" />
+                        CSV Accurate / Jurnal.id
+                    </a>
                 </div>
             </div>
         </form>

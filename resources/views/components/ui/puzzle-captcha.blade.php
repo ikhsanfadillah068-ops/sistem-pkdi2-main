@@ -1,7 +1,13 @@
 @props([
     'id' => 'pkdi-puzzle-captcha',
 ])
-<div id="{{ $id }}" class="space-y-2 select-none" data-puzzle-captcha data-challenge-url="{{ route('captcha.challenge') }}" data-verify-url="{{ route('captcha.verify') }}">
+<div
+    id="{{ $id }}"
+    class="space-y-2 select-none"
+    style="user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;"
+    data-puzzle-captcha
+    data-challenge-url="{{ route('captcha.challenge') }}"
+    data-verify-url="{{ route('captcha.verify') }}">
     <div class="flex items-center justify-between">
         <span class="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Verifikasi Keamanan</span>
         <span class="text-[11px] font-medium text-emerald-600 hidden" data-captcha-badge>Terverifikasi</span>
@@ -9,7 +15,9 @@
 
     <input type="hidden" name="captcha_verified_token" value="" data-captcha-token>
 
-    <div class="relative w-full overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 shadow-xs" style="aspect-ratio: 320 / 156;">
+    <div
+        class="relative w-full overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 shadow-xs"
+        style="aspect-ratio: 320 / 156; touch-action: none; user-select: none; -webkit-user-select: none;">
         <canvas width="320" height="156" class="block h-full w-full" data-captcha-bg></canvas>
         <canvas width="320" height="156" class="pointer-events-none absolute inset-0 block h-full w-full" data-captcha-piece></canvas>
 
@@ -18,7 +26,7 @@
             title="Muat ulang puzzle"
             aria-label="Muat ulang puzzle keamanan"
             data-captcha-refresh
-            class="absolute right-2.5 top-2.5 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white/95 text-zinc-700 shadow-md ring-1 ring-black/10 transition hover:bg-white hover:text-[#800000] active:scale-95">
+            class="absolute right-2.5 top-2.5 z-10 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/95 text-zinc-700 shadow-md ring-1 ring-black/10 transition hover:bg-white hover:text-[#800000] active:scale-95">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M21 12a9 9 0 1 1-2.64-6.36" />
                 <polyline points="21 3 21 9 15 9" />
@@ -27,14 +35,18 @@
     </div>
 
     <div
-        class="relative flex h-11 w-full items-center overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 transition-colors"
+        class="relative flex h-12 w-full items-center overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 transition-colors"
+        style="height: 48px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;"
         data-captcha-track>
         <div
             class="pointer-events-none absolute inset-y-0 left-0 bg-[#800000]/12 transition-colors"
             style="width: 0px;"
             data-captcha-fill></div>
 
-        <span class="pointer-events-none w-full pl-12 pr-3 text-center text-xs font-medium text-zinc-500 transition-colors" data-captcha-label>
+        <span
+            class="pointer-events-none w-full pr-3 text-center text-xs font-medium text-zinc-500 transition-colors"
+            style="padding-left: 56px;"
+            data-captcha-label>
             Geser kepingan ke tempatnya
         </span>
 
@@ -42,13 +54,13 @@
             type="button"
             aria-label="Geser untuk mencocokkan puzzle"
             data-captcha-handle
-            class="absolute left-0 top-0 bottom-0 z-10 flex w-12 cursor-grab items-center justify-center rounded-xl text-white shadow-md transition-colors active:cursor-grabbing touch-none"
-            style="background: linear-gradient(135deg, #800000 0%, #5a0018 100%); transform: translateX(0px);">
-            <svg data-icon-arrows xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            class="absolute left-0 top-0 bottom-0 z-10 flex cursor-grab items-center justify-center rounded-xl text-white shadow-md transition-colors active:cursor-grabbing"
+            style="width: 56px; height: 100%; background: linear-gradient(135deg, #800000 0%, #5a0018 100%); transform: translate3d(0px, 0, 0); touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; will-change: transform;">
+            <svg data-icon-arrows xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m6 17 5-5-5-5" />
                 <path d="m13 17 5-5-5-5" />
             </svg>
-            <svg data-icon-check xmlns="http://www.w3.org/2000/svg" class="hidden h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg data-icon-check xmlns="http://www.w3.org/2000/svg" class="hidden h-4 w-4 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M20 6 9 17l-5-5" />
             </svg>
         </button>
@@ -74,17 +86,13 @@
         var r = size * 0.22;
         ctx.beginPath();
         ctx.moveTo(x, y);
-        // Top edge with outward tab
         ctx.lineTo(x + size * 0.35, y);
         ctx.arc(x + size * 0.5, y - r * 0.45, r, Math.PI * 0.85, Math.PI * 0.15, false);
         ctx.lineTo(x + size, y);
-        // Right edge with outward tab
         ctx.lineTo(x + size, y + size * 0.35);
         ctx.arc(x + size + r * 0.45, y + size * 0.5, r, Math.PI * 1.35, Math.PI * 0.65, false);
         ctx.lineTo(x + size, y + size);
-        // Bottom edge flat
         ctx.lineTo(x, y + size);
-        // Left edge with inward notch
         ctx.lineTo(x, y + size * 0.65);
         ctx.arc(x + r * 0.45, y + size * 0.5, r, Math.PI * 0.65, Math.PI * 1.35, true);
         ctx.lineTo(x, y);
@@ -94,7 +102,6 @@
     function drawAbstractArt(ctx, width, height, seed) {
         var rand = mulberry32(seed || 12345);
 
-        // Rich multi-stop background gradient similar to reference
         var palettes = [
             ['#c97b53', '#8b5280', '#4f28a8'],
             ['#b86b4b', '#7b3e6e', '#3b2496'],
@@ -120,7 +127,6 @@
             'rgba(34, 84, 189, 0.55)'
         ];
 
-        // Ellipses & circles
         for (var i = 0; i < 9; i++) {
             ctx.save();
             ctx.fillStyle = shapesColors[Math.floor(rand() * shapesColors.length)];
@@ -138,7 +144,6 @@
             ctx.restore();
         }
 
-        // Geometric triangles & polygons
         for (var j = 0; j < 7; j++) {
             ctx.save();
             ctx.fillStyle = shapesColors[Math.floor(rand() * shapesColors.length)];
@@ -153,7 +158,6 @@
             ctx.restore();
         }
 
-        // Crisp intersecting diagonal lines
         for (var k = 0; k < 14; k++) {
             ctx.save();
             ctx.strokeStyle = shapesColors[Math.floor(rand() * shapesColors.length)];
@@ -185,8 +189,19 @@
             var iconCheck = root.querySelector('[data-icon-check]');
             var challengeUrl = root.getAttribute('data-challenge-url');
             var verifyUrl = root.getAttribute('data-verify-url');
-            var csrfMeta = document.querySelector('meta[name="csrf-token"]');
-            var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+            var parentForm = root.closest('form');
+
+            function getCsrfToken() {
+                var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+                if (csrfMeta && csrfMeta.getAttribute('content')) {
+                    return csrfMeta.getAttribute('content');
+                }
+                if (parentForm) {
+                    var formToken = parentForm.querySelector('input[name="_token"]');
+                    if (formToken && formToken.value) return formToken.value;
+                }
+                return '';
+            }
 
             var PIECE_SIZE = 44;
             var START_X = 12;
@@ -201,9 +216,14 @@
                 seed: 12345,
                 currentX: START_X,
                 verified: false,
+                verifying: false,
                 dragging: false,
+                dragMode: null, // 'touch' | 'mouse'
+                activeTouchId: null,
                 startClientX: 0,
+                startHandleOffset: 0,
                 maxTrackTravel: 240,
+                lastTouchEndAt: 0,
                 pieceSnapshot: null
             };
 
@@ -216,6 +236,14 @@
                     errorEl.textContent = '';
                     errorEl.classList.add('hidden');
                 }
+            }
+
+            function getTrackMetrics() {
+                var rect = track.getBoundingClientRect();
+                var trackW = rect.width || track.clientWidth || 320;
+                var handleW = handle.getBoundingClientRect().width || handle.offsetWidth || 56;
+                var maxTravel = Math.max(1, trackW - handleW);
+                return { rect: rect, trackW: trackW, handleW: handleW, maxTravel: maxTravel };
             }
 
             function renderPieceAt(x) {
@@ -236,18 +264,26 @@
                 state.currentX = pieceX;
                 var maxPieceX = state.width - PIECE_SIZE - 14;
                 var ratio = Math.max(0, Math.min(1, (pieceX - START_X) / Math.max(1, maxPieceX - START_X)));
-                var trackW = track.clientWidth || 320;
-                var handleW = handle.offsetWidth || 48;
-                state.maxTrackTravel = Math.max(1, trackW - handleW);
-                var handleX = ratio * state.maxTrackTravel;
+                var m = getTrackMetrics();
+                state.maxTrackTravel = m.maxTravel;
+                var handleX = ratio * m.maxTravel;
 
-                handle.style.transform = 'translateX(' + handleX.toFixed(1) + 'px)';
-                fill.style.width = (handleX + handleW * 0.5).toFixed(1) + 'px';
+                handle.style.transform = 'translate3d(' + handleX.toFixed(1) + 'px, 0, 0)';
+                fill.style.width = (handleX + m.handleW * 0.5).toFixed(1) + 'px';
                 renderPieceAt(pieceX);
+            }
+
+            function updateByHandleX(handleX) {
+                var m = getTrackMetrics();
+                var clamped = Math.max(0, Math.min(m.maxTravel, handleX));
+                var maxPieceX = state.width - PIECE_SIZE - 14;
+                var pieceX = START_X + (clamped / m.maxTravel) * (maxPieceX - START_X);
+                syncSliderUi(pieceX);
             }
 
             function resetSlider(message, isError) {
                 state.verified = false;
+                state.verifying = false;
                 tokenInput.value = '';
                 if (badge) badge.classList.add('hidden');
                 if (iconArrows) iconArrows.classList.remove('hidden');
@@ -265,7 +301,7 @@
                 syncSliderUi(START_X);
                 if (isError) {
                     setTimeout(function () {
-                        if (!state.verified) {
+                        if (!state.verified && !state.dragging) {
                             handle.style.background = 'linear-gradient(135deg, #800000 0%, #5a0018 100%)';
                             fill.style.backgroundColor = 'rgba(128, 0, 0, 0.12)';
                             label.textContent = 'Geser kepingan ke tempatnya';
@@ -280,10 +316,8 @@
                 var bgCtx = bgCanvas.getContext('2d');
                 bgCtx.clearRect(0, 0, state.width, state.height);
 
-                // 1. Draw clean abstract background
                 drawAbstractArt(bgCtx, state.width, state.height, state.seed);
 
-                // 2. Capture exact jigsaw piece texture from (targetX, targetY)
                 var snap = document.createElement('canvas');
                 snap.width = PIECE_SIZE + 28;
                 snap.height = PIECE_SIZE + 28;
@@ -304,7 +338,6 @@
                 );
                 sCtx.restore();
 
-                // Crisp white border on piece
                 sCtx.save();
                 drawJigsawPath(sCtx, 12, 12, PIECE_SIZE);
                 sCtx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
@@ -313,7 +346,6 @@
                 sCtx.restore();
                 state.pieceSnapshot = snap;
 
-                // 3. Draw subtle decoy slot
                 bgCtx.save();
                 drawJigsawPath(bgCtx, state.decoyX, state.decoyY, PIECE_SIZE);
                 bgCtx.fillStyle = 'rgba(20, 12, 26, 0.42)';
@@ -323,7 +355,6 @@
                 bgCtx.stroke();
                 bgCtx.restore();
 
-                // 4. Draw real target cutout slot
                 bgCtx.save();
                 drawJigsawPath(bgCtx, state.targetX, state.targetY, PIECE_SIZE);
                 bgCtx.fillStyle = 'rgba(18, 12, 24, 0.62)';
@@ -359,6 +390,8 @@
             }
 
             function verifyPosition() {
+                if (state.verifying || state.verified) return;
+                state.verifying = true;
                 label.textContent = 'Memverifikasi...';
                 fetch(verifyUrl, {
                     method: 'POST',
@@ -366,7 +399,7 @@
                     headers: {
                         'Content-Type': 'application/json',
                         'Accept': 'application/json',
-                        'X-CSRF-TOKEN': csrfToken
+                        'X-CSRF-TOKEN': getCsrfToken()
                     },
                     body: JSON.stringify({
                         token: state.token,
@@ -377,6 +410,7 @@
                     return res.json().then(function (body) { return { ok: res.ok, body: body }; });
                 })
                 .then(function (result) {
+                    state.verifying = false;
                     if (result.ok && result.body && result.body.verified) {
                         state.verified = true;
                         tokenInput.value = result.body.verified_token;
@@ -398,39 +432,121 @@
                     }
                 })
                 .catch(function () {
+                    state.verifying = false;
                     resetSlider('Gagal memverifikasi, coba lagi', true);
                 });
             }
 
-            handle.addEventListener('pointerdown', function (e) {
-                if (state.verified || !state.token) return;
+            function beginDrag(clientX, mode, touchId, startedOnHandle) {
+                if (state.verified || state.verifying || !state.token) return false;
+                var m = getTrackMetrics();
                 state.dragging = true;
-                state.startClientX = e.clientX;
-                handle.setPointerCapture(e.pointerId);
-            });
+                state.dragMode = mode;
+                state.activeTouchId = touchId;
 
-            handle.addEventListener('pointermove', function (e) {
+                if (startedOnHandle) {
+                    var maxPieceX = state.width - PIECE_SIZE - 14;
+                    var curRatio = Math.max(0, Math.min(1, (state.currentX - START_X) / Math.max(1, maxPieceX - START_X)));
+                    state.startClientX = clientX;
+                    state.startHandleOffset = curRatio * m.maxTravel;
+                } else {
+                    // Jika pengguna menekan langsung area track di HP, langsung pindahkan handle ke posisi jari
+                    var targetHandleX = clientX - m.rect.left - (m.handleW * 0.5);
+                    state.startClientX = clientX;
+                    state.startHandleOffset = Math.max(0, Math.min(m.maxTravel, targetHandleX));
+                    updateByHandleX(state.startHandleOffset);
+                }
+                return true;
+            }
+
+            function moveDrag(clientX) {
                 if (!state.dragging || state.verified) return;
-                var delta = e.clientX - state.startClientX;
-                var trackW = track.clientWidth || 320;
-                var handleW = handle.offsetWidth || 48;
-                var maxTravel = Math.max(1, trackW - handleW);
-                var clamped = Math.max(0, Math.min(maxTravel, delta));
-                var maxPieceX = state.width - PIECE_SIZE - 14;
-                var pieceX = START_X + (clamped / maxTravel) * (maxPieceX - START_X);
-                syncSliderUi(pieceX);
-            });
+                var delta = clientX - state.startClientX;
+                updateByHandleX(state.startHandleOffset + delta);
+            }
 
-            function endDrag() {
+            function finishDrag() {
                 if (!state.dragging) return;
                 state.dragging = false;
-                if (!state.verified) {
+                state.dragMode = null;
+                state.activeTouchId = null;
+                if (!state.verified && state.currentX > START_X + 4) {
                     verifyPosition();
+                } else if (!state.verified) {
+                    syncSliderUi(START_X);
                 }
             }
 
-            handle.addEventListener('pointerup', endDrag);
-            handle.addEventListener('pointercancel', endDrag);
+            // === TOUCH EVENTS (100% Native Support untuk HP Android & iOS Safari) ===
+            function onTouchStart(e) {
+                if (state.verified || state.verifying || !state.token) return;
+                if (!e.touches || e.touches.length === 0) return;
+                var t = e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : e.touches[0];
+                var startedOnHandle = e.target === handle || handle.contains(e.target);
+                if (beginDrag(t.clientX, 'touch', t.identifier, startedOnHandle)) {
+                    if (e.cancelable) e.preventDefault();
+                }
+            }
+
+            function findActiveTouch(touchList) {
+                if (!touchList) return null;
+                for (var i = 0; i < touchList.length; i++) {
+                    if (touchList[i].identifier === state.activeTouchId) {
+                        return touchList[i];
+                    }
+                }
+                return touchList[0] || null;
+            }
+
+            function onTouchMove(e) {
+                if (!state.dragging || state.dragMode !== 'touch') return;
+                var t = findActiveTouch(e.touches);
+                if (!t) return;
+                if (e.cancelable) e.preventDefault();
+                moveDrag(t.clientX);
+            }
+
+            function onTouchEnd(e) {
+                if (!state.dragging || state.dragMode !== 'touch') return;
+                state.lastTouchEndAt = Date.now();
+                finishDrag();
+            }
+
+            track.addEventListener('touchstart', onTouchStart, { passive: false });
+            window.addEventListener('touchmove', onTouchMove, { passive: false });
+            window.addEventListener('touchend', onTouchEnd, { passive: true });
+            window.addEventListener('touchcancel', onTouchEnd, { passive: true });
+
+            // === MOUSE EVENTS (Desktop) ===
+            function onMouseDown(e) {
+                if (e.button !== 0) return;
+                if (Date.now() - state.lastTouchEndAt < 600) return;
+                var startedOnHandle = e.target === handle || handle.contains(e.target);
+                if (beginDrag(e.clientX, 'mouse', null, startedOnHandle)) {
+                    e.preventDefault();
+                }
+            }
+
+            function onMouseMove(e) {
+                if (!state.dragging || state.dragMode !== 'mouse') return;
+                moveDrag(e.clientX);
+            }
+
+            function onMouseUp() {
+                if (!state.dragging || state.dragMode !== 'mouse') return;
+                finishDrag();
+            }
+
+            track.addEventListener('mousedown', onMouseDown);
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+
+            // Resize listener agar posisi handle selalu presisi jika rotasi HP berubah
+            window.addEventListener('resize', function () {
+                if (state.token) {
+                    syncSliderUi(state.verified ? state.targetX : state.currentX);
+                }
+            });
 
             if (refreshBtn) {
                 refreshBtn.addEventListener('click', function () {
@@ -438,7 +554,6 @@
                 });
             }
 
-            var parentForm = root.closest('form');
             if (parentForm) {
                 parentForm.addEventListener('submit', function (e) {
                     if (!state.verified || !tokenInput.value) {

@@ -5,7 +5,10 @@ namespace App\Http\Controllers\Preview;
 use App\Http\Controllers\Controller;
 use App\Models\ClientCompany;
 use App\Models\CompanyPaymentAccount;
+use App\Models\ComplianceDoc;
+use App\Models\DiscrepancyReport;
 use App\Models\DrumProduct;
+use App\Models\GateLog;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\ReconditioningService;
@@ -14,6 +17,7 @@ use App\Models\ServiceTariff;
 use App\Models\User;
 use App\Services\BillingAndExitWorkflowService;
 use App\Services\OrderWorkflowService;
+use App\Services\PrdV21WorkflowService;
 use App\Services\ReportExportService;
 use App\Support\AuditLogger;
 use App\Support\OrderPresenter;
@@ -51,9 +55,18 @@ class ClientPreviewController extends Controller
         DrumProduct::ensureDefaults();
         ReconditioningService::ensureDefaults();
 
+        $reorderOrder = null;
+        if ($request->filled('reorder')) {
+            $candidate = ServiceOrder::findByCodeOrSlug((string) $request->query('reorder'));
+            if ($candidate && (int) $candidate->client_company_id === (int) $request->user()?->client_company_id) {
+                $reorderOrder = $candidate;
+            }
+        }
+
         return view('client.orders.create', [
             'companyName' => $request->user()?->companyDisplay() ?? 'PT Maju Jaya Kimia',
             'clientCompany' => $request->user()?->clientCompany,
+            'reorderOrder' => $reorderOrder,
             'drumProducts' => DrumProduct::query()->active()->get(),
             'reconditioningServices' => ReconditioningService::query()->active()->get(),
             'paymentMethodGroups' => config('pkdi.payment_methods', []),
@@ -63,6 +76,50 @@ class ClientPreviewController extends Controller
                 ->orderBy('id')
                 ->get(['id', 'tariff_code', 'name', 'service_category', 'service_type', 'unit', 'unit_price']),
         ]);
+    }
+
+    public function reorder(Request $request, string $code): RedirectResponse
+    {
+        $order = ServiceOrder::findByCodeOrSlug($code);
+        abort_if(! $order, 404, 'Pesanan tidak ditemukan.');
+        Gate::authorize('view', $order);
+
+        return redirect()
+            ->route('client.orders.create', ['reorder' => $order->order_slug])
+            ->with('status', "Draf pesan ulang dari {$order->order_number} berhasil disiapkan. Periksa rincian lalu kirim pesanan.");
+    }
+
+    public function discrepancyShow(Request $request, string $token): View
+    {
+        $report = DiscrepancyReport::query()
+            ->with(['serviceOrder.clientCompany', 'gateLog'])
+            ->where('magic_token', $token)
+            ->firstOrFail();
+
+        $order = $report->serviceOrder;
+        abort_if(! $order, 404);
+        Gate::authorize('view', $order);
+
+        return view('client.discrepancies.show', [
+            'order' => OrderPresenter::toArray($order),
+            'report' => $report,
+        ]);
+    }
+
+    public function discrepancyApprove(
+        Request $request,
+        DiscrepancyReport $report,
+        PrdV21WorkflowService $prd,
+    ): RedirectResponse {
+        /** @var User $client */
+        $client = $request->user();
+
+        $approved = $prd->approveDiscrepancyReport($client, $report, $request);
+        $order = $approved->serviceOrder;
+
+        return redirect()
+            ->route('client.orders.show', $order->order_slug)
+            ->with('status', "Berita Acara Selisih {$approved->ba_number} berhasil disetujui (ACC) secara digital. Kunci transaksi dibuka untuk proses selanjutnya.");
     }
 
     public function ordersStore(Request $request, OrderWorkflowService $workflow): RedirectResponse
@@ -88,6 +145,7 @@ class ClientPreviewController extends Controller
             'origin_company_name' => ['nullable', 'string', 'min:3', 'max:200'],
             'specification_notes' => ['nullable', 'string', 'max:2000'],
             'client_notes' => ['nullable', 'string', 'max:2000'],
+            'reordered_from_order_id' => ['nullable', 'integer', 'exists:service_orders,id'],
             'attachment' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
         ], [
             'transaction_type.required' => 'Jenis layanan wajib dipilih.',
@@ -197,6 +255,7 @@ class ClientPreviewController extends Controller
             'payment_method' => ['required', 'string', 'min:2', 'max:50'],
             'reference_number' => ['nullable', 'string', 'max:100'],
             'proof_file' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
+            'pph23_proof_file' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
             'proof_file_name' => ['nullable', 'string', 'max:255'],
         ], [
             'amount.required' => 'Nominal pembayaran wajib diisi.',
@@ -207,6 +266,8 @@ class ClientPreviewController extends Controller
             'payment_method.required' => 'Metode / bank pengirim wajib diisi.',
             'proof_file.mimes' => 'Bukti pembayaran harus berformat PDF, JPG, atau PNG.',
             'proof_file.max' => 'Ukuran berkas bukti pembayaran maksimal 5 MB.',
+            'pph23_proof_file.mimes' => 'Bukti Potong PPh 23 harus berformat PDF, JPG, atau PNG.',
+            'pph23_proof_file.max' => 'Ukuran berkas Bukti Potong PPh 23 maksimal 10 MB.',
         ]);
 
         $payment = $billing->submitClientPaymentProof(
@@ -215,6 +276,7 @@ class ClientPreviewController extends Controller
             validated: $validated,
             proofFile: $request->file('proof_file'),
             request: $request,
+            pph23ProofFile: $request->file('pph23_proof_file'),
         );
 
         return redirect()
@@ -238,6 +300,94 @@ class ClientPreviewController extends Controller
         }
 
         return $exporter->exportInvoicePdf($invoice);
+    }
+
+    public function downloadInvoiceZipBundle(
+        Request $request,
+        string $code,
+        ReportExportService $exporter,
+    ): Response {
+        $invoice = Invoice::findByCodeOrSlug($code)
+            ?? (ctype_digit($code) ? Invoice::query()->find((int) $code) : null);
+
+        abort_if(! $invoice, 404, 'Dokumen invoice tidak ditemukan.');
+        Gate::authorize('view', $invoice);
+
+        if ($request->user()?->isClient() && $invoice->status === 'DRAFT') {
+            abort(403, 'Tagihan draft belum dapat diunduh oleh Client.');
+        }
+
+        return $exporter->exportInvoiceZipBundle($invoice);
+    }
+
+    public function downloadInvoiceEfaktur(Request $request, string $code): Response
+    {
+        $invoice = Invoice::findByCodeOrSlug($code)
+            ?? (ctype_digit($code) ? Invoice::query()->find((int) $code) : null);
+
+        abort_if(! $invoice, 404, 'Dokumen invoice tidak ditemukan.');
+        Gate::authorize('view', $invoice);
+
+        $path = $invoice->efaktur_path;
+        abort_if(! $path || ! Storage::disk('local')->exists($path), 404, 'Berkas PDF e-Faktur belum diunggah.');
+
+        return Storage::disk('local')->response($path);
+    }
+
+    public function downloadInvoicePph23Proof(Request $request, string $code): Response
+    {
+        $invoice = Invoice::findByCodeOrSlug($code)
+            ?? (ctype_digit($code) ? Invoice::query()->find((int) $code) : null);
+
+        abort_if(! $invoice, 404, 'Dokumen invoice tidak ditemukan.');
+        Gate::authorize('view', $invoice);
+
+        $path = $invoice->pph23_proof_path;
+        abort_if(! $path || ! Storage::disk('local')->exists($path), 404, 'Berkas Bukti Potong PPh 23 belum diunggah.');
+
+        return Storage::disk('local')->response($path);
+    }
+
+    public function downloadReconditionCertPdf(
+        Request $request,
+        string $code,
+        ReportExportService $exporter,
+    ): Response {
+        $order = ServiceOrder::findByCodeOrSlug($code)
+            ?? (ctype_digit($code) ? ServiceOrder::query()->find((int) $code) : null);
+
+        abort_if(! $order, 404, 'Pesanan tidak ditemukan.');
+        Gate::authorize('view', $order);
+
+        $cert = $order->reconditionCert;
+        abort_if(! $cert, 404, 'Sertifikat Rekondisi belum diterbitkan untuk pesanan ini.');
+
+        return $exporter->exportReconditionCertPdf($cert);
+    }
+
+    public function downloadComplianceDoc(Request $request, ComplianceDoc $doc): Response
+    {
+        $order = $doc->serviceOrder;
+        abort_if(! $order, 404);
+        Gate::authorize('view', $order);
+
+        abort_if(! $doc->file_path || ! Storage::disk('local')->exists($doc->file_path), 404, 'Berkas dokumen kepatuhan tidak ditemukan.');
+
+        return Storage::disk('local')->response($doc->file_path);
+    }
+
+    public function downloadGateLogEvidence(Request $request, GateLog $gateLog, int $index): Response
+    {
+        $order = $gateLog->serviceOrder;
+        abort_if(! $order, 404);
+        Gate::authorize('view', $order);
+
+        $photos = is_array($gateLog->evidence_photos) ? $gateLog->evidence_photos : [];
+        $path = $photos[$index] ?? null;
+
+        abort_if(! is_string($path) || ! Storage::disk('local')->exists($path), 404, 'Foto bukti Gate-In tidak ditemukan.');
+
+        return Storage::disk('local')->response($path);
     }
 
     public function downloadPaymentProof(Request $request, Payment $payment): Response

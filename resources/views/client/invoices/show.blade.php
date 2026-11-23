@@ -34,10 +34,20 @@
             @endif
         </div>
         <div class="flex flex-wrap gap-2">
+            <a href="{{ route('invoices.bundle-zip', $invoiceSlug) }}" class="btn btn-primary">
+                <x-ui.icon name="download" />
+                Unduh Paket ZIP (5 Dokumen)
+            </a>
             <a href="{{ route('invoices.download-pdf', $invoiceSlug) }}" class="btn btn-outline">
                 <x-ui.icon name="printer" />
                 Unduh PDF Invoice
             </a>
+            @if (!empty($inv['verify_url']))
+                <a href="{{ $inv['verify_url'] }}" target="_blank" rel="noopener" class="btn btn-outline">
+                    <x-ui.icon name="shield" />
+                    Verifikasi QR
+                </a>
+            @endif
         </div>
     </div>
 
@@ -76,20 +86,32 @@
                             @endforeach
                         </tbody>
                         <tfoot>
+                            @if (($inv['additional_fees'] ?? 0) > 0)
+                                <tr>
+                                    <td colspan="3" class="text-right text-muted-foreground">Biaya Tambahan / Pemusnahan Reject</td>
+                                    <td class="text-right tabular-nums">Rp {{ number_format($inv['additional_fees'], 0, ',', '.') }}</td>
+                                </tr>
+                            @endif
                             @if (($inv['adjustment'] ?? 0) > 0)
                                 <tr>
                                     <td colspan="3" class="text-right text-muted-foreground">Penyesuaian / Potongan</td>
                                     <td class="text-right tabular-nums">-Rp {{ number_format($inv['adjustment'], 0, ',', '.') }}</td>
                                 </tr>
                             @endif
-                            @if (($inv['tax'] ?? 0) > 0)
+                            @if (($inv['ppn_amount'] ?? $inv['tax'] ?? 0) > 0)
                                 <tr>
-                                    <td colspan="3" class="text-right text-muted-foreground">Pajak / PPN</td>
-                                    <td class="text-right tabular-nums">Rp {{ number_format($inv['tax'], 0, ',', '.') }}</td>
+                                    <td colspan="3" class="text-right text-muted-foreground">PPN ({{ ($inv['ppn_rate'] ?? 0) > 0 ? $inv['ppn_rate'] : 11 }}%)</td>
+                                    <td class="text-right tabular-nums">Rp {{ number_format($inv['ppn_amount'] ?? $inv['tax'], 0, ',', '.') }}</td>
+                                </tr>
+                            @endif
+                            @if (($inv['pph23_amount'] ?? 0) > 0)
+                                <tr>
+                                    <td colspan="3" class="text-right text-warning">Estimasi Potongan PPh Pasal 23 ({{ ($inv['pph23_rate'] ?? 0) > 0 ? $inv['pph23_rate'] : 2 }}%)</td>
+                                    <td class="text-right tabular-nums text-warning">-Rp {{ number_format($inv['pph23_amount'], 0, ',', '.') }}</td>
                                 </tr>
                             @endif
                             <tr>
-                                <td colspan="3" class="text-right font-semibold">Total Tagihan</td>
+                                <td colspan="3" class="text-right font-semibold">Total Transfer Bersih (Net Receivable)</td>
                                 <td class="text-right font-semibold tabular-nums">Rp {{ number_format($inv['total'], 0, ',', '.') }}</td>
                             </tr>
                             <tr>
@@ -228,7 +250,7 @@
                                                 data-account-holder="{{ $acc?->account_holder }}"
                                                 data-provider="{{ $acc?->provider_name }}"
                                                 @selected($selectedInvoicePayMethod === $method)>
-                                                {{ $method }}@if ($acc) — {{ $acc->account_number }} (a.n. {{ $acc->account_holder }})@endif
+                                                {{ $method }}@if ($acc) - {{ $acc->account_number }} (a.n. {{ $acc->account_holder }})@endif
                                             </option>
                                         @endforeach
                                     </optgroup>
@@ -256,9 +278,12 @@
                         <x-ui.field label="Unggah Bukti Pembayaran (Wajib)" name="proof_file" :error="$errors->first('proof_file')" required help="Format PDF, JPG, atau PNG maksimal 5 MB.">
                             <x-ui.file-preview id="client-proof-upload" name="proof_file" label="Pilih foto atau PDF bukti pembayaran" />
                         </x-ui.field>
+                        <x-ui.field label="Unggah PDF Bukti Potong PPh Pasal 23 {{ ($inv['pph23_amount'] ?? 0) > 0 ? '(Wajib untuk pelunasan)' : '(Opsional)' }}" name="pph23_proof_file" :error="$errors->first('pph23_proof_file')" help="Format PDF, JPG, atau PNG maksimal 10 MB. Diperlukan Keuangan sebelum mengubah status ke Lunas (PAID).">
+                            <input id="f-pph23_proof_file" name="pph23_proof_file" type="file" accept=".pdf,image/*" class="input file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-xs file:font-medium">
+                        </x-ui.field>
                         <x-ui.button type="submit" class="w-full">
                             <x-ui.icon name="upload" />
-                            Kirim Bukti Pembayaran
+                            Kirim Bukti Pembayaran & PPh 23
                         </x-ui.button>
                     </form>
                 @endif

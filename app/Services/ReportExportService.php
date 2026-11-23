@@ -3,10 +3,16 @@
 namespace App\Services;
 
 use App\Models\CashbookEntry;
+use App\Models\ComplianceDoc;
+use App\Models\DeliveryOrder;
 use App\Models\Invoice;
 use App\Models\OperationalExpense;
+use App\Models\ReconditionCert;
 use App\Models\ServiceOrder;
 use App\Support\PkdiDemoData;
+use App\Support\QrCodeGenerator;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 use ZipArchive;
 
@@ -477,25 +483,46 @@ class ReportExportService
 
         $summaryRows = [
             ['label' => 'Subtotal Pekerjaan', 'val' => 'Rp '.number_format((float) $invoice->subtotal_amount, 0, ',', '.'), 'bold' => false],
-            ['label' => 'Penyesuaian Biaya', 'val' => 'Rp '.number_format((float) $invoice->adjustment_amount, 0, ',', '.'), 'bold' => false],
-            ['label' => 'Pajak / PPN (11%)', 'val' => 'Rp '.number_format((float) $invoice->tax_amount, 0, ',', '.'), 'bold' => false],
-            ['label' => 'TOTAL TAGIHAN', 'val' => 'Rp '.number_format((float) $invoice->total_amount, 0, ',', '.'), 'bold' => true, 'highlight' => true],
-            ['label' => 'Sudah Dibayar', 'val' => 'Rp '.number_format((float) $invoice->paid_amount, 0, ',', '.'), 'bold' => false],
-            ['label' => 'SISA TAGIHAN', 'val' => 'Rp '.number_format((float) $invoice->balance_due, 0, ',', '.'), 'bold' => true],
         ];
+        if ((float) ($invoice->additional_fees ?? 0) > 0) {
+            $summaryRows[] = ['label' => 'Biaya Tambahan / Reject', 'val' => 'Rp '.number_format((float) $invoice->additional_fees, 0, ',', '.'), 'bold' => false];
+        }
+        if ((float) $invoice->adjustment_amount > 0) {
+            $summaryRows[] = ['label' => 'Penyesuaian / Potongan', 'val' => '-Rp '.number_format((float) $invoice->adjustment_amount, 0, ',', '.'), 'bold' => false];
+        }
+        $ppnDisplay = (float) ($invoice->ppn_amount > 0 ? $invoice->ppn_amount : $invoice->tax_amount);
+        $ppnRateDisplay = (float) ($invoice->ppn_rate > 0 ? $invoice->ppn_rate : 11);
+        $summaryRows[] = ['label' => "PPN ({$ppnRateDisplay}%)", 'val' => 'Rp '.number_format($ppnDisplay, 0, ',', '.'), 'bold' => false];
+        if ((float) ($invoice->pph23_amount ?? 0) > 0) {
+            $pphRateDisplay = (float) ($invoice->pph23_rate > 0 ? $invoice->pph23_rate : 2);
+            $summaryRows[] = ['label' => "Potongan PPh 23 ({$pphRateDisplay}%)", 'val' => '-Rp '.number_format((float) $invoice->pph23_amount, 0, ',', '.'), 'bold' => false];
+        }
+        $summaryRows[] = ['label' => 'TOTAL TRANSFER BERSIH', 'val' => 'Rp '.number_format((float) $invoice->total_amount, 0, ',', '.'), 'bold' => true, 'highlight' => true];
+        $summaryRows[] = ['label' => 'Sudah Dibayar', 'val' => 'Rp '.number_format((float) $invoice->paid_amount, 0, ',', '.'), 'bold' => false];
+        $summaryRows[] = ['label' => 'SISA TAGIHAN', 'val' => 'Rp '.number_format((float) $invoice->balance_due, 0, ',', '.'), 'bold' => true];
 
         $sy = $summaryTop;
         foreach ($summaryRows as $sRow) {
-            $sh = ! empty($sRow['highlight']) ? 22.0 : 19.0;
+            $sh = ! empty($sRow['highlight']) ? 22.0 : 18.0;
             $sBottom = $sy - $sh;
             $sBg = ! empty($sRow['highlight']) ? '0.965 0.935 0.945' : '1 1 1';
             $ops[] = $this->pdfRect(304, $sBottom, 255, $sh, $sBg, '0.86 0.86 0.89', 0.5);
             $font = $sRow['bold'] ? 'F2' : 'F1';
             $color = ! empty($sRow['highlight']) ? '0.533 0.075 0.216' : '0.15 0.15 0.18';
-            $ops[] = $this->pdfText(314, $sBottom + 6, $sRow['label'], $font, 8.5, $color);
-            $ops[] = $this->pdfTextRight(549, $sBottom + 6, $sRow['val'], $font, 8.5, $color);
+            $ops[] = $this->pdfText(314, $sBottom + 5.5, $sRow['label'], $font, 8.2, $color);
+            $ops[] = $this->pdfTextRight(549, $sBottom + 5.5, $sRow['val'], $font, 8.2, $color);
             $sy = $sBottom;
         }
+
+        // QR Verifikasi Resmi di pojok kanan bawah Invoice (PRD v2.1 Bab 5.2)
+        if (empty($invoice->qr_hash)) {
+            $invoice->update(['qr_hash' => hash('sha256', $invoice->invoice_number.'|'.Str::random(24))]);
+        }
+        $verifyUrl = url('/verify/'.$invoice->qr_hash);
+        $ops[] = $this->pdfQrCode(485, 62, 70, $verifyUrl);
+        $ops[] = $this->pdfText(36, 98, 'VERIFIKASI KEASLIAN DOKUMEN DIGITAL', 'F2', 7.5, '0.533 0.075 0.216');
+        $ops[] = $this->pdfText(36, 86, 'Pindai QR Code di sebelah kanan untuk memvalidasi keaslian faktur resmi PT PKDI.', 'F1', 7.5, '0.35 0.35 0.40');
+        $ops[] = $this->pdfText(36, 74, 'Kode Verifikasi: '.substr((string) $invoice->qr_hash, 0, 24), 'F1', 7.2, '0.45 0.45 0.50');
 
         $ops[] = $this->pdfPageFooter(1);
         $pdfBinary = $this->compilePdfPages([implode("\n", $ops)]);
@@ -505,6 +532,453 @@ class ReportExportService
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="'.$filename.'"',
         ]);
+    }
+
+    /**
+     * Menghasilkan biner PDF Sertifikat Rekondisi Resmi PKDI lengkap dengan QR Code Verifikasi (PRD v2.1 Bab 2.3).
+     */
+    public function buildReconditionCertPdfBinary(ReconditionCert $cert): string
+    {
+        $cert->loadMissing(['serviceOrder.clientCompany', 'serviceOrder.drumProduct', 'serviceOrder.reconditioningService', 'issuedBy']);
+        $order = $cert->serviceOrder;
+        $companyName = $order?->clientCompany?->company_name ?? ($order?->origin_company_name ?? '-');
+        $companyAddress = $order?->resolvedAddress() ?? '-';
+        $poOrOrder = $order?->po_number ? "{$order->po_number} ({$order->order_number})" : ($order?->order_number ?? '-');
+        $productName = $order?->drumProduct?->name ?? ($order?->service_category ?? 'Drum Industri');
+        $serviceName = $order?->reconditioningService?->name ?? ($order?->service_type ?? 'Rekondisi Drum');
+        $unit = $order?->requested_unit ?: 'Drum';
+        $completionDate = $cert->completion_date?->format('d M Y') ?? now('Asia/Jakarta')->format('d M Y');
+        $verifyUrl = url('/verify/'.$cert->qr_hash);
+
+        $ops = [];
+
+        // Outer ornamental border
+        $ops[] = $this->pdfRect(28, 28, 539, 786, '1 1 1', '0.533 0.075 0.216', 1.5);
+        $ops[] = $this->pdfRect(34, 34, 527, 774, null, '0.86 0.86 0.89', 0.6);
+
+        // Corporate Letterhead (Kop PKDI)
+        $ops[] = $this->pdfRect(42, 728, 511, 70, '0.533 0.075 0.216');
+        $ops[] = $this->pdfText(58, 772, 'PT PULO KENCANA DRUM INDUSTRI (PKDI)', 'F2', 15, '1 1 1');
+        $ops[] = $this->pdfText(58, 754, 'Divisi Operasional Gudang, Rekondisi & Kepatuhan Kemasan Industri', 'F1', 9, '0.96 0.86 0.89');
+        $ops[] = $this->pdfText(58, 740, 'Dokumen Resmi Bersertifikasi Digital & Verifikasi QR Code', 'F1', 8, '0.96 0.86 0.89');
+
+        // Title Banner
+        $ops[] = $this->pdfRect(42, 666, 511, 48, '0.976 0.976 0.980', '0.86 0.86 0.89', 0.7);
+        $ops[] = $this->pdfText(142, 694, 'SERTIFIKAT REKONDISI DRUM RESMI', 'F2', 14.5, '0.533 0.075 0.216');
+        $ops[] = $this->pdfText(186, 677, 'Nomor Sertifikat: '.$cert->cert_number, 'F2', 9.5, '0.15 0.15 0.18');
+
+        // Formal Attestation Statement
+        $ops[] = $this->pdfText(56, 636, 'Dengan ini PT Pulo Kencana Drum Industri (PKDI) menyatakan bahwa kemasan drum di bawah ini telah melalui', 'F1', 9.5, '0.18 0.18 0.22');
+        $ops[] = $this->pdfText(56, 621, 'proses penerimaan fisik (Gate-In), sortir, rekondisi, serta uji kelayakan Quality Control (QC) dengan hasil:', 'F1', 9.5, '0.18 0.18 0.22');
+
+        // Certificate Details Box
+        $rows = [
+            ['Nomor Sertifikat', $cert->cert_number],
+            ['Nomor PO / Pesanan Client', $poOrOrder],
+            ['Perusahaan Pemilik (Client)', $companyName],
+            ['Alamat Perusahaan', mb_strimwidth($companyAddress, 0, 58, '...')],
+            ['Jenis Kemasan & Layanan', "{$productName} - {$serviceName}"],
+            ['Jumlah Drum Lolos QC (Layak)', number_format((int) $cert->qc_passed_qty, 0, ',', '.')." {$unit}"],
+            ['Tanggal Selesai Rekondisi', $completionDate],
+            ['Status Kelayakan QC', 'LULUS UJI KELAYAKAN & SIAP DIGUNAKAN KEMBALI'],
+        ];
+
+        $y = 598.0;
+        foreach ($rows as $idx => [$label, $val]) {
+            $rowH = 30.0;
+            $bottom = $y - $rowH;
+            $bg = $idx % 2 === 0 ? '0.988 0.988 0.992' : '1 1 1';
+            $ops[] = $this->pdfRect(56, $bottom, 483, $rowH, $bg, '0.88 0.88 0.90', 0.5);
+            $ops[] = $this->pdfLine(235, $bottom, 235, $y, '0.88 0.88 0.90', 0.5);
+            $ops[] = $this->pdfText(68, $bottom + 11, $label, 'F2', 9, '0.35 0.35 0.40');
+            $valColor = $idx === 5 || $idx === 7 ? '0.07 0.48 0.22' : '0.09 0.09 0.11';
+            $ops[] = $this->pdfText(248, $bottom + 11, (string) $val, 'F2', 9.2, $valColor);
+            $y = $bottom;
+        }
+
+        // Signature Block (Left) & QR Verification Block (Bottom-Right)
+        $ops[] = $this->pdfText(56, 265, 'Diterbitkan secara elektronik pada '.$completionDate, 'F1', 9, '0.25 0.25 0.30');
+        $ops[] = $this->pdfText(56, 248, 'Kepala Gudang & Penjaminan Mutu (QC)', 'F2', 9.5, '0.09 0.09 0.11');
+        $ops[] = $this->pdfLine(56, 175, 250, 175, '0.25 0.25 0.30', 0.8);
+        $ops[] = $this->pdfText(56, 160, (string) ($cert->issuedBy?->name ?? 'Kepala Gudang PKDI'), 'F2', 9.5, '0.09 0.09 0.11');
+        $ops[] = $this->pdfText(56, 146, 'PT Pulo Kencana Drum Industri (PKDI)', 'F1', 8.5, '0.40 0.40 0.45');
+
+        // QR Code Box (Bottom-Right per PRD v2.1 Bab 2.3)
+        $ops[] = $this->pdfRect(390, 118, 150, 170, '0.985 0.985 0.990', '0.533 0.075 0.216', 0.8);
+        $ops[] = $this->pdfText(406, 272, 'QR CODE VERIFIKASI', 'F2', 8.5, '0.533 0.075 0.216');
+        $ops[] = $this->pdfQrCode(410, 156, 110, $verifyUrl);
+        $ops[] = $this->pdfText(402, 142, 'Pindai untuk validasi keaslian', 'F1', 7.2, '0.35 0.35 0.40');
+        $ops[] = $this->pdfText(402, 130, 'ID: '.substr((string) $cert->qr_hash, 0, 18), 'F1', 6.8, '0.45 0.45 0.50');
+
+        $ops[] = $this->pdfPageFooter(1);
+
+        return $this->compilePdfPages([implode("\n", $ops)]);
+    }
+
+    public function exportReconditionCertPdf(ReconditionCert $cert): Response
+    {
+        $binary = $this->buildReconditionCertPdfBinary($cert);
+
+        return response($binary, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$cert->cert_number.'.pdf"',
+        ]);
+    }
+
+    /**
+     * Menghasilkan biner PDF Surat Jalan resmi lengkap dengan QR Code Verifikasi.
+     */
+    public function buildDeliveryOrderPdfBinary(DeliveryOrder $do): string
+    {
+        $do->loadMissing(['serviceOrder.clientCompany', 'invoice', 'issuedBy']);
+        if (empty($do->qr_hash)) {
+            $do->update(['qr_hash' => hash('sha256', $do->delivery_order_number.'|'.Str::random(24))]);
+        }
+
+        $verifyUrl = url('/verify/'.$do->qr_hash);
+        $ops = [];
+        $ops[] = $this->pdfRect(36, 744, 523, 60, '0.533 0.075 0.216');
+        $ops[] = $this->pdfText(50, 780, 'PT PULO KENCANA DRUM INDUSTRI (PKDI)', 'F2', 13, '1 1 1');
+        $ops[] = $this->pdfText(50, 761, 'SURAT JALAN RESMI (DELIVERY ORDER)', 'F1', 9.5, '0.96 0.86 0.89');
+        $ops[] = $this->pdfTextRight(545, 780, $do->delivery_order_number, 'F2', 10.5, '1 1 1');
+        $ops[] = $this->pdfTextRight(545, 761, 'Tgl: '.($do->issued_at?->format('d M Y') ?? now('Asia/Jakarta')->format('d M Y')), 'F1', 8.5, '0.96 0.86 0.89');
+
+        $rows = [
+            ['Nomor Surat Jalan', $do->delivery_order_number],
+            ['Nomor Pesanan', $do->serviceOrder?->order_number ?? '-'],
+            ['Nomor Invoice Terkait', $do->invoice?->invoice_number ?? '-'],
+            ['Perusahaan Tujuan (Client)', $do->clientCompany?->company_name ?? '-'],
+            ['Alamat Tujuan', mb_strimwidth((string) ($do->serviceOrder?->resolvedAddress() ?? $do->clientCompany?->address ?? '-'), 0, 58, '...')],
+            ['Ringkasan Muatan', $do->cargo_summary],
+            ['Kuantitas Dikeluarkan', "{$do->quantity_released} {$do->unit}"],
+            ['Armada & Pengemudi', trim(($do->vehicle_type ?? '').' '.($do->license_plate ?? '').' / '.($do->driver_name ?? '-'))],
+        ];
+
+        $y = 720.0;
+        foreach ($rows as $idx => [$label, $val]) {
+            $bottom = $y - 28.0;
+            $ops[] = $this->pdfRect(36, $bottom, 523, 28, $idx % 2 === 0 ? '0.985 0.985 0.990' : '1 1 1', '0.86 0.86 0.89', 0.5);
+            $ops[] = $this->pdfLine(210, $bottom, 210, $y, '0.86 0.86 0.89', 0.5);
+            $ops[] = $this->pdfText(48, $bottom + 10, $label, 'F2', 8.5, '0.35 0.35 0.40');
+            $ops[] = $this->pdfText(222, $bottom + 10, (string) $val, 'F1', 8.8, '0.09 0.09 0.11');
+            $y = $bottom;
+        }
+
+        $ops[] = $this->pdfQrCode(470, 96, 85, $verifyUrl);
+        $ops[] = $this->pdfText(36, 150, 'Diterbitkan oleh: '.($do->issuedBy?->name ?? 'Kepala Gudang PKDI'), 'F2', 9, '0.09 0.09 0.11');
+        $ops[] = $this->pdfText(36, 134, 'Pindai QR Code untuk memverifikasi keaslian Surat Jalan ini.', 'F1', 8, '0.35 0.35 0.40');
+        $ops[] = $this->pdfPageFooter(1);
+
+        return $this->compilePdfPages([implode("\n", $ops)]);
+    }
+
+    /**
+     * FASE 3 (4.3): Generator Paket ZIP 1-Click untuk Client (`PKDI_BUNDLE_[NO_INVOICE].zip`).
+     * Menggabungkan 5 dokumen PDF ke dalam 1 file ZIP:
+     * 01_Invoice_PKDI.pdf, 02_Faktur_Pajak_eFaktur.pdf, 03_Surat_Jalan_Terkirim.pdf,
+     * 04_Manifest_Limbah_B3.pdf, 05_Sertifikat_Rekondisi_Drum.pdf.
+     */
+    public function exportInvoiceZipBundle(Invoice $invoice): Response
+    {
+        $invoice->loadMissing([
+            'clientCompany',
+            'serviceOrder.complianceDocs',
+            'serviceOrder.reconditionCert',
+            'serviceOrder.latestDeliveryOrder',
+            'items',
+        ]);
+
+        $order = $invoice->serviceOrder;
+        $safeInvNo = preg_replace('/[^A-Za-z0-9\-_]/', '_', (string) $invoice->invoice_number) ?: 'INVOICE';
+        $zipFilename = "PKDI_BUNDLE_{$safeInvNo}.zip";
+
+        $tmpFile = tempnam(sys_get_temp_dir(), 'pkdi_bundle_');
+        $zip = new ZipArchive;
+        if ($tmpFile === false || $zip->open($tmpFile, ZipArchive::OVERWRITE) !== true) {
+            abort(500, 'Gagal menyiapkan arsip ZIP paket tagihan.');
+        }
+
+        // 1. 01_Invoice_PKDI.pdf
+        $invoicePdf = (string) $this->exportInvoicePdf($invoice)->getContent();
+        $zip->addFromString('01_Invoice_PKDI.pdf', $invoicePdf);
+
+        // 2. 02_Faktur_Pajak_eFaktur.pdf
+        if (! empty($invoice->efaktur_path) && Storage::disk('local')->exists($invoice->efaktur_path)) {
+            $zip->addFromString('02_Faktur_Pajak_eFaktur.pdf', (string) Storage::disk('local')->get($invoice->efaktur_path));
+        } else {
+            $zip->addFromString('02_Faktur_Pajak_eFaktur.pdf', $this->buildStatementPdf(
+                'RINGKASAN FAKTUR PAJAK (e-FAKTUR)',
+                $invoice->invoice_number,
+                [
+                    'Status e-Faktur' => $invoice->efaktur_number ? "No. {$invoice->efaktur_number}" : 'Menunggu unggahan PDF e-Faktur dari divisi Keuangan PKDI',
+                    'Dasar Pengenaan Pajak (DPP)' => 'Rp '.number_format((float) $invoice->subtotal_amount, 0, ',', '.'),
+                    'PPN ('.(float) ($invoice->ppn_rate ?: 11).'%)' => 'Rp '.number_format((float) ($invoice->ppn_amount ?: $invoice->tax_amount), 0, ',', '.'),
+                    'Estimasi Potongan PPh 23 ('.(float) ($invoice->pph23_rate ?: 2).'%)' => 'Rp '.number_format((float) $invoice->pph23_amount, 0, ',', '.'),
+                    'Perusahaan Client' => $invoice->clientCompany?->company_name ?? '-',
+                    'NPWP Client' => $invoice->clientCompany?->npwp ?? '-',
+                ]
+            ));
+        }
+
+        // 3. 03_Surat_Jalan_Terkirim.pdf
+        $sjDoc = $order?->complianceDocs->firstWhere('doc_type', ComplianceDoc::TYPE_SURAT_JALAN);
+        if ($sjDoc && Storage::disk('local')->exists($sjDoc->file_path)) {
+            $ext = strtolower(pathinfo($sjDoc->file_path, PATHINFO_EXTENSION) ?: 'pdf');
+            $zip->addFromString($ext === 'pdf' ? '03_Surat_Jalan_Terkirim.pdf' : '03_Surat_Jalan_Terkirim.'.$ext, (string) Storage::disk('local')->get($sjDoc->file_path));
+        } elseif ($order?->latestDeliveryOrder) {
+            $zip->addFromString('03_Surat_Jalan_Terkirim.pdf', $this->buildDeliveryOrderPdfBinary($order->latestDeliveryOrder));
+        } else {
+            $zip->addFromString('03_Surat_Jalan_Terkirim.pdf', $this->buildStatementPdf(
+                'SURAT JALAN PENGIRIMAN / PENYERAHAN',
+                $order?->order_number ?? $invoice->invoice_number,
+                [
+                    'Perusahaan Client' => $invoice->clientCompany?->company_name ?? '-',
+                    'Alamat Tujuan' => $order?->resolvedAddress() ?? '-',
+                    'Armada / Nopol' => $order?->license_plate ?? '-',
+                    'Pengemudi' => $order?->driver_name ?? '-',
+                    'Kuantitas' => ($order?->delivered_quantity ?? $invoice->billed_qty ?? $order?->requested_quantity ?? 0).' '.($order?->requested_unit ?? 'Drum'),
+                ]
+            ));
+        }
+
+        // 4. 04_Manifest_Limbah_B3.pdf
+        $b3Doc = $order?->complianceDocs->firstWhere('doc_type', ComplianceDoc::TYPE_MANIFEST_B3);
+        if ($b3Doc && Storage::disk('local')->exists($b3Doc->file_path)) {
+            $ext = strtolower(pathinfo($b3Doc->file_path, PATHINFO_EXTENSION) ?: 'pdf');
+            $zip->addFromString($ext === 'pdf' ? '04_Manifest_Limbah_B3.pdf' : '04_Manifest_Limbah_B3.'.$ext, (string) Storage::disk('local')->get($b3Doc->file_path));
+        } else {
+            $zip->addFromString('04_Manifest_Limbah_B3.pdf', $this->buildStatementPdf(
+                'DOKUMEN KEPATUHAN MANIFEST LIMBAH B3',
+                $order?->order_number ?? $invoice->invoice_number,
+                [
+                    'Jenis Layanan' => $order?->transactionTypeLabel() ?? '-',
+                    'Perusahaan Client' => $invoice->clientCompany?->company_name ?? '-',
+                    'Keterangan' => $order?->isWasteTransport()
+                        ? 'Manifest B3 Festronik belum diunggah oleh Kepala Gudang.'
+                        : 'Pesanan merupakan layanan Rekondisi Drum (Manifest B3 opsional bila tidak ada pengangkutan limbah B3).',
+                ]
+            ));
+        }
+
+        // 5. 05_Sertifikat_Rekondisi_Drum.pdf
+        $cert = $order?->reconditionCert;
+        if ($cert) {
+            $zip->addFromString('05_Sertifikat_Rekondisi_Drum.pdf', $this->buildReconditionCertPdfBinary($cert));
+        } else {
+            $zip->addFromString('05_Sertifikat_Rekondisi_Drum.pdf', $this->buildStatementPdf(
+                'SERTIFIKAT REKONDISI DRUM PKDI',
+                $order?->order_number ?? $invoice->invoice_number,
+                [
+                    'Perusahaan Client' => $invoice->clientCompany?->company_name ?? '-',
+                    'Status Sertifikat' => $order?->isWasteTransport()
+                        ? 'Tidak berlaku untuk layanan Pengangkutan Limbah (gunakan BAST & Manifest B3).'
+                        : 'Sertifikat Rekondisi sedang dalam proses penerbitan oleh Kepala Gudang.',
+                ]
+            ));
+        }
+
+        $zip->close();
+        $binary = (string) file_get_contents($tmpFile);
+        @unlink($tmpFile);
+
+        return response($binary, 200, [
+            'Content-Type' => 'application/zip',
+            'Content-Disposition' => 'attachment; filename="'.$zipFilename.'"',
+        ]);
+    }
+
+    /**
+     * FASE 2 (3.3): Ekspor Template Impor Coretax / e-Faktur (.csv).
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function exportCoretaxCsv(array $filters): Response
+    {
+        $query = Invoice::query()
+            ->with(['clientCompany', 'serviceOrder', 'items'])
+            ->whereNotIn('status', ['DRAFT', 'VOIDED'])
+            ->orderByDesc('issue_date');
+
+        if (! empty($filters['from'])) {
+            $query->whereDate('issue_date', '>=', (string) $filters['from']);
+        }
+        if (! empty($filters['to'])) {
+            $query->whereDate('issue_date', '<=', (string) $filters['to']);
+        }
+
+        $invoices = $query->get();
+
+        $lines = [];
+        $lines[] = [
+            'FK', 'KD_JENIS_TRANSAKSI', 'FG_PENGGANTI', 'NOMOR_FAKTUR', 'MASA_PAJAK', 'TAHUN_PAJAK',
+            'TANGGAL_FAKTUR', 'NPWP_LAWAN', 'NAMA_LAWAN', 'ALAMAT_LAWAN',
+            'JUMLAH_DPP', 'JUMLAH_PPN', 'JUMLAH_PPH23', 'NET_RECEIVABLE', 'REFERENSI_INVOICE', 'STATUS_BAYAR',
+        ];
+
+        foreach ($invoices as $inv) {
+            $issueDate = $inv->issue_date ?? now('Asia/Jakarta');
+            $dpp = round((float) $inv->subtotal_amount, 2);
+            $ppn = round((float) ($inv->ppn_amount > 0 ? $inv->ppn_amount : $inv->tax_amount), 2);
+            $pph23 = round((float) $inv->pph23_amount, 2);
+            $net = round((float) ($inv->net_receivable > 0 ? $inv->net_receivable : $inv->total_amount), 2);
+
+            $lines[] = [
+                'FK',
+                '01',
+                '0',
+                $inv->efaktur_number ?: $inv->invoice_number,
+                $issueDate->format('m'),
+                $issueDate->format('Y'),
+                $issueDate->format('d/m/Y'),
+                preg_replace('/[^0-9]/', '', (string) ($inv->clientCompany?->npwp ?? '000000000000000')),
+                $inv->clientCompany?->company_name ?? '-',
+                $inv->serviceOrder?->resolvedAddress() ?? ($inv->clientCompany?->address ?? '-'),
+                $dpp,
+                $ppn,
+                $pph23,
+                $net,
+                $inv->invoice_number,
+                $inv->status,
+            ];
+        }
+
+        return $this->streamCsvResponse($lines, 'ekspor-coretax-efaktur-pkdi.csv');
+    }
+
+    /**
+     * FASE 2 (3.3): Ekspor Template Akuntansi Accurate / Jurnal.id (.csv).
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    public function exportAccountingCsv(array $filters): Response
+    {
+        $query = Invoice::query()
+            ->with(['clientCompany', 'serviceOrder', 'items'])
+            ->whereNotIn('status', ['DRAFT', 'VOIDED'])
+            ->orderByDesc('issue_date');
+
+        if (! empty($filters['from'])) {
+            $query->whereDate('issue_date', '>=', (string) $filters['from']);
+        }
+        if (! empty($filters['to'])) {
+            $query->whereDate('issue_date', '<=', (string) $filters['to']);
+        }
+
+        $invoices = $query->get();
+
+        $lines = [];
+        $lines[] = [
+            'InvoiceNumber', 'TransactionDate', 'DueDate', 'CustomerName', 'CustomerNPWP',
+            'ItemDescription', 'Quantity', 'Unit', 'UnitPrice', 'Subtotal_DPP',
+            'PPN_11', 'PPh23_2', 'NetReceivable', 'PaidAmount', 'BalanceDue', 'Status',
+        ];
+
+        foreach ($invoices as $inv) {
+            $dpp = round((float) $inv->subtotal_amount, 2);
+            $ppn = round((float) ($inv->ppn_amount > 0 ? $inv->ppn_amount : $inv->tax_amount), 2);
+            $pph23 = round((float) $inv->pph23_amount, 2);
+            $net = round((float) ($inv->net_receivable > 0 ? $inv->net_receivable : $inv->total_amount), 2);
+            $firstItem = $inv->items->first();
+
+            $lines[] = [
+                $inv->invoice_number,
+                $inv->issue_date?->format('Y-m-d') ?? '',
+                $inv->due_date?->format('Y-m-d') ?? '',
+                $inv->clientCompany?->company_name ?? '-',
+                $inv->clientCompany?->npwp ?? '-',
+                $firstItem?->description ?? 'Jasa Layanan Drum PKDI',
+                $firstItem?->quantity ?? ($inv->billed_qty ?? 1),
+                $firstItem?->unit ?? 'Drum',
+                $firstItem ? (float) $firstItem->unit_price : $dpp,
+                $dpp,
+                $ppn,
+                $pph23,
+                $net,
+                (float) $inv->paid_amount,
+                (float) $inv->balance_due,
+                $inv->status,
+            ];
+        }
+
+        return $this->streamCsvResponse($lines, 'ekspor-akuntansi-accurate-jurnal-pkdi.csv');
+    }
+
+    /**
+     * @param  array<string, string>  $fields
+     */
+    private function buildStatementPdf(string $title, string $reference, array $fields): string
+    {
+        $ops = [];
+        $ops[] = $this->pdfRect(36, 744, 523, 60, '0.533 0.075 0.216');
+        $ops[] = $this->pdfText(50, 780, 'PT PULO KENCANA DRUM INDUSTRI (PKDI)', 'F2', 13, '1 1 1');
+        $ops[] = $this->pdfText(50, 761, $title, 'F1', 9, '0.96 0.86 0.89');
+        $ops[] = $this->pdfTextRight(545, 780, $reference, 'F2', 10, '1 1 1');
+
+        $y = 716.0;
+        foreach ($fields as $label => $val) {
+            $bottom = $y - 28.0;
+            $ops[] = $this->pdfRect(36, $bottom, 523, 28, '0.985 0.985 0.990', '0.86 0.86 0.89', 0.5);
+            $ops[] = $this->pdfText(48, $bottom + 10, $label, 'F2', 8.5, '0.35 0.35 0.40');
+            $ops[] = $this->pdfText(225, $bottom + 10, mb_strimwidth($val, 0, 56, '...'), 'F1', 8.5, '0.09 0.09 0.11');
+            $y = $bottom;
+        }
+
+        $ops[] = $this->pdfPageFooter(1);
+
+        return $this->compilePdfPages([implode("\n", $ops)]);
+    }
+
+    /**
+     * @param  list<list<string|int|float>>  $rows
+     */
+    private function streamCsvResponse(array $rows, string $filename): Response
+    {
+        $stream = fopen('php://temp', 'r+');
+        if ($stream === false) {
+            abort(500, 'Gagal membuat CSV.');
+        }
+        foreach ($rows as $row) {
+            fputcsv($stream, $row);
+        }
+        rewind($stream);
+        $csv = (string) stream_get_contents($stream);
+        fclose($stream);
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+        ]);
+    }
+
+    /**
+     * Merender QR Code asli berbasis vektor persegi di dalam halaman PDF (%PDF-1.4).
+     */
+    private function pdfQrCode(float $x, float $y, float $boxSize, string $url): string
+    {
+        $matrix = QrCodeGenerator::matrix($url);
+        $n = count($matrix);
+        $quiet = 2;
+        $totalModules = $n + ($quiet * 2);
+        $cell = $boxSize / $totalModules;
+
+        $cmds = ['q'];
+        $cmds[] = '1 1 1 rg';
+        $cmds[] = sprintf('%.2f %.2f %.2f %.2f re f', $x, $y, $boxSize, $boxSize);
+        $cmds[] = '0.09 0.09 0.11 rg';
+
+        for ($r = 0; $r < $n; $r++) {
+            for ($c = 0; $c < $n; $c++) {
+                if ($matrix[$r][$c]) {
+                    $mx = $x + (($c + $quiet) * $cell);
+                    // PDF y grows upward, so row 0 is at top of box
+                    $my = $y + $boxSize - (($r + $quiet + 1) * $cell);
+                    $cmds[] = sprintf('%.2f %.2f %.2f %.2f re f', $mx, $my, $cell + 0.05, $cell + 0.05);
+                }
+            }
+        }
+        $cmds[] = 'Q';
+
+        return implode("\n", $cmds);
     }
 
     /**

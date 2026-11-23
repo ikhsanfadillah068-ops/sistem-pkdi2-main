@@ -9,6 +9,17 @@ class AuditLog extends Model
 {
     public const UPDATED_AT = null;
 
+    protected static function booted(): void
+    {
+        static::updating(static function (): bool {
+            throw new \LogicException('AuditLog bersifat permanen (immutable) dan tidak dapat diubah.');
+        });
+
+        static::deleting(static function (): bool {
+            throw new \LogicException('AuditLog bersifat permanen (immutable) dan tidak dapat dihapus.');
+        });
+    }
+
     protected $fillable = [
         'user_id',
         'user_role',

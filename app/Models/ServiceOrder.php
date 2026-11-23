@@ -64,6 +64,12 @@ class ServiceOrder extends Model
         'billing_status',
         'payment_status',
         'payment_method',
+        'is_locked',
+        'handed_over_to_finance_at',
+        'manager_override_by_user_id',
+        'manager_override_at',
+        'manager_override_reason',
+        'reordered_from_order_id',
         'delivery_method',
         'delivered_quantity',
         'delivered_at',
@@ -80,6 +86,7 @@ class ServiceOrder extends Model
         return [
             'requested_quantity' => 'integer',
             'delivered_quantity' => 'integer',
+            'is_locked' => 'boolean',
             'pickup_latitude' => 'float',
             'pickup_longitude' => 'float',
             'po_date' => 'date',
@@ -88,6 +95,8 @@ class ServiceOrder extends Model
             'delivered_at' => 'datetime',
             'submitted_at' => 'datetime',
             'in_transit_at' => 'datetime',
+            'handed_over_to_finance_at' => 'datetime',
+            'manager_override_at' => 'datetime',
             'completed_at' => 'datetime',
             'cancelled_at' => 'datetime',
         ];
@@ -253,5 +262,103 @@ class ServiceOrder extends Model
     public function latestDeliveryOrder(): HasOne
     {
         return $this->hasOne(DeliveryOrder::class)->latestOfMany();
+    }
+
+    public function warehouseGateLogs(): HasMany
+    {
+        return $this->hasMany(GateLog::class)->latest('recorded_at');
+    }
+
+    public function latestGateIn(): HasOne
+    {
+        return $this->hasOne(GateLog::class)->where('type', GateLog::TYPE_IN)->latestOfMany();
+    }
+
+    public function latestGateOut(): HasOne
+    {
+        return $this->hasOne(GateLog::class)->where('type', GateLog::TYPE_OUT)->latestOfMany();
+    }
+
+    public function discrepancyReports(): HasMany
+    {
+        return $this->hasMany(DiscrepancyReport::class)->latest('id');
+    }
+
+    public function latestDiscrepancyReport(): HasOne
+    {
+        return $this->hasOne(DiscrepancyReport::class)->latestOfMany();
+    }
+
+    public function complianceDocs(): HasMany
+    {
+        return $this->hasMany(ComplianceDoc::class)->latest('id');
+    }
+
+    public function reconditionCert(): HasOne
+    {
+        return $this->hasOne(ReconditionCert::class)->latestOfMany();
+    }
+
+    public function managerOverrideBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'manager_override_by_user_id');
+    }
+
+    public function hasManagerOverride(): bool
+    {
+        return $this->manager_override_at !== null && filled($this->manager_override_reason);
+    }
+
+    public function hasPendingDiscrepancy(): bool
+    {
+        return $this->discrepancyReports()->where('status', DiscrepancyReport::STATUS_PENDING)->exists();
+    }
+
+    /**
+     * Memeriksa kelengkapan dokumen kepatuhan wajib sesuai jenis layanan (PRD v2.1 Bab 2.3).
+     *
+     * @return array{
+     *   all_valid: bool,
+     *   has_gate_in: bool,
+     *   has_pending_discrepancy: bool,
+     *   has_manager_override: bool,
+     *   items: list<array{key: string, label: string, valid: bool, required: bool}>
+     * }
+     */
+    public function complianceChecklist(): array
+    {
+        $this->loadMissing(['warehouseGateLogs', 'discrepancyReports', 'complianceDocs', 'reconditionCert']);
+
+        $hasGateIn = $this->warehouseGateLogs->where('type', GateLog::TYPE_IN)->isNotEmpty();
+        $hasPendingDiscrepancy = $this->discrepancyReports->where('status', DiscrepancyReport::STATUS_PENDING)->isNotEmpty();
+        $hasOverride = $this->hasManagerOverride();
+        $docTypes = $this->complianceDocs->where('is_verified', true)->pluck('doc_type')->unique()->all();
+        $hasCert = $this->reconditionCert !== null;
+
+        if ($this->isWasteTransport()) {
+            $items = [
+                ['key' => 'GATE_IN', 'label' => 'Gate-In Fisik Armada', 'valid' => $hasGateIn, 'required' => true],
+                ['key' => ComplianceDoc::TYPE_MANIFEST_B3, 'label' => 'Manifest B3 (Festronik)', 'valid' => in_array(ComplianceDoc::TYPE_MANIFEST_B3, $docTypes, true), 'required' => true],
+                ['key' => ComplianceDoc::TYPE_BAST, 'label' => 'BAST Bertanda Tangan', 'valid' => in_array(ComplianceDoc::TYPE_BAST, $docTypes, true), 'required' => true],
+            ];
+        } else {
+            $items = [
+                ['key' => 'GATE_IN', 'label' => 'Gate-In Fisik Armada', 'valid' => $hasGateIn, 'required' => true],
+                ['key' => ComplianceDoc::TYPE_SURAT_JALAN, 'label' => 'Surat Jalan', 'valid' => in_array(ComplianceDoc::TYPE_SURAT_JALAN, $docTypes, true), 'required' => true],
+                ['key' => 'RECONDITION_CERT', 'label' => 'Sertifikat Rekondisi (QR)', 'valid' => $hasCert, 'required' => true],
+            ];
+        }
+
+        $docsValid = collect($items)->every(static fn (array $i): bool => ! $i['required'] || $i['valid']);
+        $allValid = ($docsValid && ! $hasPendingDiscrepancy) || $hasOverride;
+
+        return [
+            'all_valid' => $allValid,
+            'docs_valid' => $docsValid,
+            'has_gate_in' => $hasGateIn,
+            'has_pending_discrepancy' => $hasPendingDiscrepancy,
+            'has_manager_override' => $hasOverride,
+            'items' => $items,
+        ];
     }
 }

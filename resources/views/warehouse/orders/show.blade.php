@@ -83,9 +83,25 @@
         <x-ui.alert variant="danger" title="Permintaan Ditolak / Dibatalkan">
             {{ $order['progress']['summary'] ?? 'Permintaan ini telah dibatalkan oleh Kepala Gudang.' }}
         </x-ui.alert>
+    @elseif ($order['order_status'] === 'DISCREPANCY_PENDING')
+        <x-ui.alert variant="danger" title="Transaksi Terkunci: Menunggu ACC Berita Acara Selisih">
+            Terdapat selisih jumlah fisik atau drum reject pada Gate-In. Pesanan dikunci hingga Client melakukan ACC digital pada Berita Acara <strong>{{ $order['discrepancy_report']['ba_number'] ?? '-' }}</strong> (atau Manajer menerapkan Split Billing / Manager Override).
+        </x-ui.alert>
     @elseif ($order['order_status'] === 'NEEDS_CLARIFICATION')
         <x-ui.alert variant="warning" title="Menunggu Klarifikasi Client">
             {{ $order['progress']['summary'] ?? 'Permintaan klarifikasi telah dikirim ke Client. Anda tetap dapat menyetujui atau menolak setelah klarifikasi selesai.' }}
+        </x-ui.alert>
+    @endif
+
+    @if (!empty($order['is_locked']))
+        <x-ui.alert variant="info" title="Data Kuantitas Terkunci (READ-ONLY)">
+            Pesanan ini telah diserahkan ke Keuangan pada <strong>{{ $order['handed_over_to_finance_at'] ?? '-' }}</strong> (<code>READY_FOR_BILLING</code>). Data kuantitas drum tidak dapat diubah lagi oleh Gudang.
+        </x-ui.alert>
+    @endif
+
+    @if (!empty($order['manager_override']['active']))
+        <x-ui.alert variant="warning" title="Manager Override Aktif">
+            Kunci dokumen dibuka oleh <strong>{{ $order['manager_override']['by'] }}</strong> pada {{ $order['manager_override']['at'] }}. Alasan: {{ $order['manager_override']['reason'] }}
         </x-ui.alert>
     @endif
 
@@ -152,6 +168,311 @@
                     </div>
                 </dl>
             </x-ui.card>
+
+            {{-- MODUL PRD v2.1 FASE 1: GATE-IN ARMADA, BA SELISIH, DOKUMEN KEPATUHAN & SERAH KE KEUANGAN --}}
+            @if (!$isCancelled)
+                @php
+                    $whGateIn = $order['warehouse_gate_in'] ?? null;
+                    $whGateOut = $order['warehouse_gate_out'] ?? null;
+                    $ba = $order['discrepancy_report'] ?? null;
+                    $checklist = $order['compliance_checklist'] ?? ['all_valid' => false, 'items' => []];
+                    $cert = $order['recondition_cert'] ?? null;
+                    $compDocs = $order['compliance_docs'] ?? [];
+                @endphp
+
+                <x-ui.card
+                    title="Gate-In Fisik Armada & Validasi Kondisi Drum (PRD v2.1)"
+                    description="Validasi plat nomor, sopir, serta jumlah drum Baik, Penyok, dan Reject. Jika total fisik berbeda dari PO atau ada Reject, Berita Acara Selisih otomatis terbit.">
+                    @if (empty($whGateIn) && empty($order['is_locked']))
+                        <form action="{{ route('warehouse.orders.gate-in.store', $orderSlug) }}" method="POST" enctype="multipart/form-data" class="space-y-4" novalidate data-validate-form data-prevent-double-submit id="form-prd-gate-in" data-po-qty="{{ (int) $order['requested_qty'] }}">
+                            @csrf
+                            <div class="grid gap-4 sm:grid-cols-2">
+                                <x-ui.field label="Nomor Plat Kendaraan" name="plate_number" :error="$errors->first('plate_number')" required>
+                                    <x-ui.input name="plate_number" :value="old('plate_number', $order['license_plate'])" placeholder="Contoh: B 9281 PKD" required />
+                                </x-ui.field>
+                                <x-ui.field label="Nama Pengemudi" name="driver_name" :error="$errors->first('driver_name')" required>
+                                    <x-ui.input name="driver_name" :value="old('driver_name', $order['driver_name'])" placeholder="Nama lengkap sopir armada" required />
+                                </x-ui.field>
+                            </div>
+                            <div class="grid gap-4 sm:grid-cols-3">
+                                <x-ui.field label="Drum Kondisi Baik (Good)" name="qty_good" :error="$errors->first('qty_good')" required>
+                                    <x-ui.input id="gi_qty_good" name="qty_good" type="number" min="0" :value="old('qty_good', $order['requested_qty'])" required />
+                                </x-ui.field>
+                                <x-ui.field label="Drum Penyok (Dent - Layak)" name="qty_dent" :error="$errors->first('qty_dent')" required>
+                                    <x-ui.input id="gi_qty_dent" name="qty_dent" type="number" min="0" :value="old('qty_dent', 0)" required />
+                                </x-ui.field>
+                                <x-ui.field label="Drum Bocor / Reject" name="qty_reject" :error="$errors->first('qty_reject')" required>
+                                    <x-ui.input id="gi_qty_reject" name="qty_reject" type="number" min="0" :value="old('qty_reject', 0)" required />
+                                </x-ui.field>
+                            </div>
+                            <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-4 py-2.5 text-xs">
+                                <span>PO Client: <strong class="tabular-nums">{{ $order['requested_qty'] }} {{ $order['unit'] }}</strong> · Total Fisik Gate-In: <strong id="gi_total_display" class="tabular-nums">{{ $order['requested_qty'] }}</strong> {{ $order['unit'] }}</span>
+                                <span id="gi_match_badge" class="badge badge-success">Sesuai PO (GATE_IN_VERIFIED)</span>
+                            </div>
+                            <x-ui.field label="Foto Bukti Kondisi Drum (Wajib min. 1 foto bila selisih atau Reject > 0)" name="evidence_photos" :error="$errors->first('evidence_photos')">
+                                <input id="gi_evidence_photos" name="evidence_photos[]" type="file" multiple accept="image/*" class="input file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-xs file:font-medium">
+                            </x-ui.field>
+                            <x-ui.field label="Catatan Gate-In / Kondisi Fisik (Opsional)" name="notes">
+                                <x-ui.input name="notes" :value="old('notes')" placeholder="Catatan hasil pemeriksaan fisik saat armada tiba" />
+                            </x-ui.field>
+                            <x-ui.button type="submit" variant="primary">
+                                <x-ui.icon name="clipboard-check" />
+                                Simpan Verifikasi Gate-In Armada
+                            </x-ui.button>
+                        </form>
+                    @elseif (!empty($whGateIn))
+                        <div class="space-y-4">
+                            <div class="grid gap-3 sm:grid-cols-4">
+                                <div class="rounded-lg border p-3">
+                                    <p class="text-xs text-muted-foreground">Armada / Sopir</p>
+                                    <p class="mt-1 font-semibold tabular-nums">{{ $whGateIn['plate_number'] }}</p>
+                                    <p class="text-xs text-muted-foreground">{{ $whGateIn['driver_name'] }}</p>
+                                </div>
+                                <div class="rounded-lg border p-3">
+                                    <p class="text-xs text-muted-foreground">Kondisi Baik (Good)</p>
+                                    <p class="mt-1 text-lg font-semibold tabular-nums text-success">{{ $whGateIn['qty_good'] }} {{ $order['unit'] }}</p>
+                                </div>
+                                <div class="rounded-lg border p-3">
+                                    <p class="text-xs text-muted-foreground">Penyok (Dent)</p>
+                                    <p class="mt-1 text-lg font-semibold tabular-nums text-warning">{{ $whGateIn['qty_dent'] }} {{ $order['unit'] }}</p>
+                                </div>
+                                <div class="rounded-lg border p-3">
+                                    <p class="text-xs text-muted-foreground">Reject / Bocor</p>
+                                    <p class="mt-1 text-lg font-semibold tabular-nums text-danger">{{ $whGateIn['qty_reject'] }} {{ $order['unit'] }}</p>
+                                </div>
+                            </div>
+                            <p class="text-xs text-muted-foreground">
+                                Dicatat {{ $whGateIn['recorded_at'] }} oleh {{ $whGateIn['officer'] }} · Total Fisik: <strong class="text-foreground tabular-nums">{{ $whGateIn['total_physical_qty'] }}</strong> (Layak Tagih Good+Dent: <strong class="text-success tabular-nums">{{ $whGateIn['billable_qty'] }} {{ $order['unit'] }}</strong>).
+                            </p>
+                            @if (!empty($whGateIn['evidence_photos']))
+                                <div class="flex flex-wrap gap-2">
+                                    @foreach ($whGateIn['evidence_photos'] as $pIdx => $pPath)
+                                        <a href="{{ route('gate-logs.evidence.show', ['gateLog' => $whGateIn['id'], 'index' => $pIdx]) }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                                            <x-ui.icon name="image" class="h-3.5 w-3.5" />
+                                            Foto Bukti #{{ $pIdx + 1 }}
+                                        </a>
+                                    @endforeach
+                                </div>
+                            @endif
+
+                            @if (!empty($ba))
+                                <div class="rounded-xl border {{ $ba['status'] === 'PENDING' ? 'border-danger/40 bg-danger-soft/30' : 'border-success/40 bg-success-soft/30' }} p-4 space-y-2.5">
+                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                        <div>
+                                            <p class="text-sm font-semibold">Berita Acara Selisih: {{ $ba['ba_number'] }}</p>
+                                            <p class="text-xs text-muted-foreground">PO: {{ $ba['po_qty'] }} · Aktual: {{ $ba['total_physical_qty'] }} (Baik {{ $ba['actual_good_qty'] }}, Penyok {{ $ba['actual_dent_qty'] }}, Reject {{ $ba['actual_reject_qty'] }})</p>
+                                        </div>
+                                        <x-ui.badge :variant="$ba['status'] === 'PENDING' ? 'danger' : 'success'" :dot="true">
+                                            {{ $ba['status'] === 'PENDING' ? 'Menunggu ACC Client' : 'Disetujui (ACC)' }}
+                                        </x-ui.badge>
+                                    </div>
+                                    @if ($ba['status'] === 'PENDING')
+                                        <div class="flex flex-wrap items-center gap-2 pt-1">
+                                            <button type="button" class="btn btn-outline btn-sm" data-copy="{{ $ba['magic_link'] }}">
+                                                <x-ui.icon name="copy" class="h-3.5 w-3.5" />
+                                                Salin Magic Link ACC Client
+                                            </button>
+                                            <a href="https://wa.me/?text={{ rawurlencode('Halo PIC '.$order['client_company'].', Berita Acara Selisih '.$ba['ba_number'].' untuk pesanan '.$order['order_number'].' menunggu persetujuan digital Anda: '.$ba['magic_link']) }}" target="_blank" rel="noopener" class="btn btn-success btn-sm">
+                                                Kirim Notifikasi WA ke Client
+                                            </a>
+                                        </div>
+                                    @else
+                                        <p class="text-xs text-success">
+                                            Di-ACC secara digital oleh <strong>{{ $ba['approved_by_name'] }}</strong> pada {{ $ba['approved_at'] }} (IP: {{ $ba['approved_ip'] }}).
+                                        </p>
+                                    @endif
+                                </div>
+                            @endif
+                        </div>
+                    @endif
+                </x-ui.card>
+
+                <x-ui.card
+                    title="Dokumen Kepatuhan, Sertifikat Rekondisi & Serah ke Keuangan"
+                    description="Unggah seluruh dokumen kepatuhan wajib dan terbitkan Sertifikat Rekondisi ber-QR Code sebelum menekan Serah ke Keuangan.">
+                    <div class="space-y-5">
+                        <div class="grid gap-2.5 sm:grid-cols-3">
+                            @foreach ($checklist['items'] as $cItem)
+                                <div class="flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-xs {{ $cItem['valid'] ? 'border-success/40 bg-success-soft/30' : 'border-warning/40 bg-warning-soft/20' }}">
+                                    <span class="font-medium">{{ $cItem['label'] }}</span>
+                                    <x-ui.badge :variant="$cItem['valid'] ? 'success' : 'warning'">
+                                        {{ $cItem['valid'] ? 'Valid' : 'Wajib' }}
+                                    </x-ui.badge>
+                                </div>
+                            @endforeach
+                        </div>
+
+                        @if (!empty($compDocs))
+                            <div class="space-y-2">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dokumen Kepatuhan Terunggah</p>
+                                @foreach ($compDocs as $cDoc)
+                                    <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs">
+                                        <div>
+                                            <span class="font-semibold text-foreground">{{ $cDoc['type_label'] }}</span>
+                                            @if (!empty($cDoc['document_number']))
+                                                <span class="text-muted-foreground"> · No: {{ $cDoc['document_number'] }}</span>
+                                            @endif
+                                            <span class="text-muted-foreground"> · {{ $cDoc['original_filename'] }} ({{ $cDoc['uploaded_at'] }})</span>
+                                        </div>
+                                        <a href="{{ route('compliance-docs.download', $cDoc['id']) }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                                            <x-ui.icon name="download" class="h-3.5 w-3.5" />
+                                            Unduh
+                                        </a>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        <form action="{{ route('warehouse.orders.compliance-docs.store', $orderSlug) }}" method="POST" enctype="multipart/form-data" class="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-12 sm:items-end" data-prevent-double-submit>
+                            @csrf
+                            <div class="sm:col-span-4">
+                                <x-ui.field label="Jenis Dokumen Kepatuhan" name="doc_type" required>
+                                    <select id="f-doc_type" name="doc_type" class="select" required>
+                                        @if ($isWasteTransport)
+                                            <option value="MANIFEST_B3">Manifest B3 (Festronik)</option>
+                                            <option value="BAST">BAST Bertanda Tangan</option>
+                                            <option value="SURAT_JALAN">Surat Jalan</option>
+                                        @else
+                                            <option value="SURAT_JALAN">Surat Jalan</option>
+                                            <option value="MANIFEST_B3">Manifest B3 (Festronik)</option>
+                                            <option value="BAST">BAST Bertanda Tangan</option>
+                                        @endif
+                                    </select>
+                                </x-ui.field>
+                            </div>
+                            <div class="sm:col-span-3">
+                                <x-ui.field label="Nomor Dokumen (Opsional)" name="document_number">
+                                    <x-ui.input name="document_number" placeholder="No. SJ / Festronik" />
+                                </x-ui.field>
+                            </div>
+                            <div class="sm:col-span-3">
+                                <x-ui.field label="File PDF / Foto" name="document_file" required>
+                                    <input name="document_file" type="file" accept=".pdf,image/*" class="input file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs" required>
+                                </x-ui.field>
+                            </div>
+                            <div class="sm:col-span-2">
+                                <x-ui.button type="submit" variant="outline" class="w-full">
+                                    <x-ui.icon name="upload" class="h-4 w-4" />
+                                    Unggah
+                                </x-ui.button>
+                            </div>
+                        </form>
+
+                        @if ($isReconditioning)
+                            <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+                                <div>
+                                    <p class="text-sm font-semibold">Sertifikat Rekondisi Resmi (Auto-Generate PDF + QR Code)</p>
+                                    @if (!empty($cert))
+                                        <p class="mt-0.5 text-xs text-success">
+                                            Terbit: <strong>{{ $cert['cert_number'] }}</strong> · {{ $cert['qc_passed_qty'] }} {{ $order['unit'] }} lolos QC ({{ $cert['completion_date'] }})
+                                        </p>
+                                    @else
+                                        <p class="mt-0.5 text-xs text-muted-foreground">Klik tombol di samping untuk menerbitkan PDF resmi ber-QR Code verifikasi.</p>
+                                    @endif
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    @if (!empty($cert))
+                                        <a href="{{ route('orders.recondition-cert.pdf', $orderSlug) }}" class="btn btn-outline btn-sm">
+                                            <x-ui.icon name="download" class="h-4 w-4" />
+                                            Unduh PDF Sertifikat
+                                        </a>
+                                        <a href="{{ $cert['verify_url'] }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                                            <x-ui.icon name="shield" class="h-4 w-4" />
+                                            Verifikasi QR
+                                        </a>
+                                    @else
+                                        <form action="{{ route('warehouse.orders.recondition-cert.store', $orderSlug) }}" method="POST" data-prevent-double-submit>
+                                            @csrf
+                                            <button type="submit" class="btn btn-primary btn-sm" @disabled(!empty($checklist['has_pending_discrepancy']) && empty($checklist['has_manager_override']))>
+                                                <x-ui.icon name="shield" class="h-4 w-4" />
+                                                Terbitkan Sertifikat Rekondisi
+                                            </button>
+                                        </form>
+                                    @endif
+                                </div>
+                            </div>
+                        @endif
+
+                        @if (empty($order['is_locked']))
+                            <div class="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                                <div class="text-xs text-muted-foreground">
+                                    @if (!empty($checklist['all_valid']))
+                                        Seluruh dokumen kepatuhan valid. Klik <strong>Serah ke Keuangan</strong> untuk mengunci kuantitas dan meneruskan ke penagihan.
+                                    @else
+                                        Tombol <strong>Serah ke Keuangan</strong> baru aktif setelah Gate-In, persetujuan BA Selisih (bila ada), dan seluruh dokumen kepatuhan wajib berstatus Valid.
+                                    @endif
+                                </div>
+                                <form action="{{ route('warehouse.orders.handover-finance', $orderSlug) }}" method="POST" data-prevent-double-submit>
+                                    @csrf
+                                    <button type="submit" class="btn btn-success" @disabled(empty($checklist['all_valid']))>
+                                        <x-ui.icon name="lock" class="h-4 w-4" />
+                                        Serah ke Keuangan (READY_FOR_BILLING)
+                                    </button>
+                                </form>
+                            </div>
+                        @endif
+
+                        @if (!empty($order['is_locked']) && empty($whGateOut))
+                            <form action="{{ route('warehouse.orders.gate-out.store', $orderSlug) }}" method="POST" class="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-12 sm:items-end" data-prevent-double-submit>
+                                @csrf
+                                <div class="sm:col-span-4">
+                                    <x-ui.field label="Plat Nomor Armada Gate-Out" name="plate_number" required>
+                                        <x-ui.input name="plate_number" :value="old('plate_number', $order['license_plate'])" placeholder="B 9281 PKD" required />
+                                    </x-ui.field>
+                                </div>
+                                <div class="sm:col-span-4">
+                                    <x-ui.field label="Nama Sopir Gate-Out" name="driver_name" required>
+                                        <x-ui.input name="driver_name" :value="old('driver_name', $order['driver_name'])" placeholder="Nama pengemudi" required />
+                                    </x-ui.field>
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <x-ui.field label="Qty Keluar" name="qty_good" required>
+                                        <x-ui.input name="qty_good" type="number" min="1" :value="$defaultCompletedQty" required />
+                                    </x-ui.field>
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <x-ui.button type="submit" variant="outline" class="w-full">Gate-Out</x-ui.button>
+                                </div>
+                            </form>
+                        @elseif (!empty($whGateOut))
+                            <div class="rounded-lg border bg-success-soft/20 px-4 py-2.5 text-xs text-success">
+                                Gate-Out tercatat pada {{ $whGateOut['recorded_at'] }}: Armada <strong>{{ $whGateOut['plate_number'] }}</strong> (Sopir: {{ $whGateOut['driver_name'] }}) · {{ $whGateOut['qty_out'] }} {{ $order['unit'] }}.
+                            </div>
+                        @endif
+                    </div>
+                </x-ui.card>
+
+                <script>
+                    document.addEventListener('DOMContentLoaded', function () {
+                        var form = document.getElementById('form-prd-gate-in');
+                        if (!form) return;
+                        var poQty = parseInt(form.getAttribute('data-po-qty') || '0', 10);
+                        var g = document.getElementById('gi_qty_good');
+                        var d = document.getElementById('gi_qty_dent');
+                        var r = document.getElementById('gi_qty_reject');
+                        var totalEl = document.getElementById('gi_total_display');
+                        var badge = document.getElementById('gi_match_badge');
+                        var sync = function () {
+                            var good = parseInt(g && g.value ? g.value : '0', 10) || 0;
+                            var dent = parseInt(d && d.value ? d.value : '0', 10) || 0;
+                            var rej = parseInt(r && r.value ? r.value : '0', 10) || 0;
+                            var tot = good + dent + rej;
+                            if (totalEl) totalEl.textContent = String(tot);
+                            if (badge) {
+                                if (tot === poQty && rej === 0) {
+                                    badge.className = 'badge badge-success';
+                                    badge.textContent = 'Sesuai PO (GATE_IN_VERIFIED)';
+                                } else {
+                                    badge.className = 'badge badge-danger';
+                                    badge.textContent = 'Selisih / Reject (Terbitkan BA Selisih + Foto Wajib)';
+                                }
+                            }
+                        };
+                        [g, d, r].forEach(function (el) { if (el) el.addEventListener('input', sync); });
+                        sync();
+                    });
+                </script>
+            @endif
 
             {{-- TAHAP 1: TINJAUAN AWAL KEPALA GUDANG --}}
             @if ($isReviewStage)

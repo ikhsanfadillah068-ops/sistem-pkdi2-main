@@ -91,4 +91,9 @@ class ClientCompany extends Model
     {
         return $this->hasMany(DeliveryOrder::class);
     }
+
+    public function contracts(): HasMany
+    {
+        return $this->hasMany(ClientContract::class);
+    }
 }

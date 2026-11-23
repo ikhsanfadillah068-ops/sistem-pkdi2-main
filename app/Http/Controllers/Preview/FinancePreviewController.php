@@ -4,13 +4,16 @@ namespace App\Http\Controllers\Preview;
 
 use App\Http\Controllers\Controller;
 use App\Models\ClientCompany;
+use App\Models\ClientContract;
 use App\Models\CompanyPaymentAccount;
+use App\Models\DrumProduct;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\ServiceOrder;
 use App\Models\ServiceTariff;
 use App\Models\User;
 use App\Services\BillingAndExitWorkflowService;
+use App\Services\PrdV21WorkflowService;
 use App\Services\ReportExportService;
 use App\Support\AuditLogger;
 use App\Support\OrderPresenter;
@@ -89,7 +92,11 @@ class FinancePreviewController extends Controller
             'descriptions' => ['nullable', 'array'],
             'descriptions.*' => ['nullable', 'string', 'max:255'],
             'adjustment_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
+            'additional_fees' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
             'tax_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
+            'ppn_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'pph23_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'use_prd_tax_calc' => ['nullable', 'boolean'],
             'issue_date' => ['nullable', 'date'],
             'due_date' => ['nullable', 'date'],
             'payment_instructions' => ['nullable', 'string', 'max:1000'],
@@ -114,7 +121,7 @@ class FinancePreviewController extends Controller
             ->with('status', $msg);
     }
 
-    public function billableShow(Request $request, string $code): View
+    public function billableShow(Request $request, string $code, PrdV21WorkflowService $prd): View
     {
         $dbOrder = ServiceOrder::findByCodeOrSlug($code)
             ?? (ctype_digit($code) ? ServiceOrder::query()->find((int) $code) : null);
@@ -125,6 +132,7 @@ class FinancePreviewController extends Controller
         return view('finance.billable.show', [
             'order' => OrderPresenter::toArray($dbOrder),
             'tariffs' => OrderPresenter::tariffs(),
+            'contractPricing' => $prd->resolveContractPricing($dbOrder),
         ]);
     }
 
@@ -149,7 +157,11 @@ class FinancePreviewController extends Controller
             'quantity' => ['required', 'integer', 'min:1', 'max:100000'],
             'unit_price' => ['required', 'numeric', 'min:1', 'max:999999999'],
             'adjustment_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
+            'additional_fees' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
             'tax_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
+            'ppn_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'pph23_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'use_prd_tax_calc' => ['nullable', 'boolean'],
             'issue_date' => ['nullable', 'date'],
             'due_date' => ['nullable', 'date'],
             'notes' => ['nullable', 'string', 'max:2000'],
@@ -489,20 +501,159 @@ class FinancePreviewController extends Controller
     public function reportsExport(Request $request, ReportExportService $exporter): Response
     {
         $format = strtolower((string) $request->query('format', 'pdf'));
-        $dataset = $exporter->buildReportDataset([
+        $filters = [
             'report_type' => $request->query('report_type', 'cashbook'),
             'from' => $request->query('from'),
             'to' => $request->query('to'),
             'category' => $request->query('category'),
             'entry_type' => $request->query('entry_type'),
             'q' => $request->query('q'),
-        ]);
+        ];
+
+        if ($format === 'coretax') {
+            return $exporter->exportCoretaxCsv($filters);
+        }
+        if ($format === 'accounting') {
+            return $exporter->exportAccountingCsv($filters);
+        }
+
+        $dataset = $exporter->buildReportDataset($filters);
 
         if ($format === 'xlsx' || $format === 'excel') {
             return $exporter->exportReportExcel($dataset);
         }
 
         return $exporter->exportReportPdf($dataset);
+    }
+
+    public function efakturStore(Request $request, string $code, PrdV21WorkflowService $prd): RedirectResponse
+    {
+        /** @var User $keuangan */
+        $keuangan = $request->user();
+        $invoice = Invoice::findByCodeOrSlug($code)
+            ?? (ctype_digit($code) ? Invoice::query()->find((int) $code) : null);
+
+        abort_if(! $invoice, 404, 'Invoice tidak ditemukan.');
+        Gate::authorize('update', $invoice);
+
+        $validated = $request->validate([
+            'efaktur_number' => ['nullable', 'string', 'max:80'],
+            'efaktur_file' => ['required', 'file', 'mimes:pdf', 'max:10240'],
+        ], [
+            'efaktur_file.required' => 'Berkas PDF e-Faktur wajib diunggah.',
+            'efaktur_file.mimes' => 'Dokumen e-Faktur harus berformat PDF.',
+        ]);
+
+        $prd->uploadEfaktur(
+            keuangan: $keuangan,
+            invoice: $invoice,
+            efakturNumber: $validated['efaktur_number'] ?? null,
+            file: $request->file('efaktur_file'),
+            request: $request,
+        );
+
+        return redirect()
+            ->route('finance.invoices.show', $invoice->invoice_slug)
+            ->with('status', "PDF e-Faktur untuk {$invoice->invoice_number} berhasil diunggah.");
+    }
+
+    public function splitBillingStore(Request $request, string $code, PrdV21WorkflowService $prd): RedirectResponse
+    {
+        /** @var User $keuangan */
+        $keuangan = $request->user();
+        $order = ServiceOrder::findByCodeOrSlug($code)
+            ?? (ctype_digit($code) ? ServiceOrder::query()->find((int) $code) : null);
+
+        abort_if(! $order, 404, 'Pesanan tidak ditemukan.');
+
+        $validated = $request->validate([
+            'split_qty' => ['required', 'integer', 'min:1', 'max:100000'],
+            'unit_price' => ['nullable', 'numeric', 'min:1', 'max:999999999'],
+            'additional_fees' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
+            'ppn_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'pph23_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'split_label' => ['nullable', 'string', 'max:150'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $invoice = $prd->createSplitInvoice($keuangan, $order, $validated, $request);
+
+        return redirect()
+            ->route('finance.invoices.show', $invoice->invoice_slug)
+            ->with('status', "Split Billing {$invoice->invoice_number} ({$invoice->billed_qty} {$order->requested_unit}) berhasil diterbitkan.");
+    }
+
+    public function contractsIndex(): View
+    {
+        return view('finance.contracts.index', [
+            'contracts' => ClientContract::query()->with(['clientCompany', 'drumProduct'])->orderBy('client_company_id')->orderBy('service_type')->get(),
+            'clients' => ClientCompany::query()->orderBy('company_name')->get(),
+            'drumProducts' => DrumProduct::query()->active()->get(),
+        ]);
+    }
+
+    public function contractsStore(Request $request): RedirectResponse
+    {
+        /** @var User $keuangan */
+        $keuangan = $request->user();
+
+        $validated = $request->validate([
+            'client_company_id' => ['required', 'integer', 'exists:client_companies,id'],
+            'service_type' => ['required', 'string', 'min:2', 'max:120'],
+            'drum_product_id' => ['nullable', 'integer', 'exists:drum_products,id'],
+            'unit_price' => ['required', 'numeric', 'min:1', 'max:999999999'],
+            'reject_disposal_fee' => ['nullable', 'numeric', 'min:0', 'max:999999999'],
+            'ppn_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'pph23_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $contract = ClientContract::query()->create([
+            'client_company_id' => (int) $validated['client_company_id'],
+            'service_type' => trim($validated['service_type']),
+            'drum_product_id' => ! empty($validated['drum_product_id']) ? (int) $validated['drum_product_id'] : null,
+            'unit_price' => (float) $validated['unit_price'],
+            'reject_disposal_fee' => (float) ($validated['reject_disposal_fee'] ?? 0),
+            'ppn_rate' => (float) ($validated['ppn_rate'] ?? 11.0),
+            'pph23_rate' => (float) ($validated['pph23_rate'] ?? 2.0),
+            'is_active' => true,
+            'notes' => isset($validated['notes']) ? trim((string) $validated['notes']) : null,
+            'created_by_user_id' => $keuangan->id,
+        ]);
+
+        AuditLogger::record(
+            action: 'CLIENT_CONTRACT_CREATED',
+            auditable: $contract,
+            newValues: $contract->only(['client_company_id', 'service_type', 'unit_price', 'reject_disposal_fee', 'ppn_rate', 'pph23_rate']),
+            actor: $keuangan,
+            request: $request,
+        );
+
+        return redirect()
+            ->route('finance.contracts.index')
+            ->with('status', "Tarif kontrak khusus layanan {$contract->service_type} berhasil disimpan.");
+    }
+
+    public function contractsDestroy(Request $request, ClientContract $contract): RedirectResponse
+    {
+        /** @var User $keuangan */
+        $keuangan = $request->user();
+        $oldValues = $contract->only(['client_company_id', 'service_type', 'unit_price', 'reject_disposal_fee']);
+        $id = $contract->id;
+        $contract->delete();
+
+        AuditLogger::record(
+            action: 'CLIENT_CONTRACT_DELETED',
+            auditable: 'ClientContract',
+            auditableId: $id,
+            oldValues: $oldValues,
+            actor: $keuangan,
+            request: $request,
+        );
+
+        return redirect()
+            ->route('finance.contracts.index')
+            ->with('status', 'Tarif kontrak client berhasil dihapus.');
     }
 
     public function paymentAccountsIndex(Request $request): View

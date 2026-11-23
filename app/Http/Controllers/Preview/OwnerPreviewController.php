@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Preview;
 use App\Http\Controllers\Controller;
 use App\Models\ClientCompany;
 use App\Models\ServiceOrder;
+use App\Models\User;
+use App\Services\PrdV21WorkflowService;
 use App\Services\ReportExportService;
 use App\Support\OrderPresenter;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
@@ -101,6 +104,55 @@ class OwnerPreviewController extends Controller
         Gate::authorize('view', $dbOrder);
 
         return view('owner.transactions.show', ['order' => OrderPresenter::toArray($dbOrder)]);
+    }
+
+    public function overrideStore(Request $request, string $code, PrdV21WorkflowService $prd): RedirectResponse
+    {
+        /** @var User $owner */
+        $owner = $request->user();
+        $dbOrder = ServiceOrder::findByCodeOrSlug($code)
+            ?? (ctype_digit($code) ? ServiceOrder::query()->find((int) $code) : null);
+
+        abort_if(! $dbOrder, 404, 'Transaksi tidak ditemukan.');
+
+        $validated = $request->validate([
+            'override_reason' => ['required', 'string', 'min:20', 'max:2000'],
+        ], [
+            'override_reason.required' => 'Alasan Manager Override wajib diisi.',
+            'override_reason.min' => 'Alasan Manager Override minimal 20 karakter untuk jejak audit permanen.',
+        ]);
+
+        $prd->applyManagerOverride($owner, $dbOrder, $validated['override_reason'], $request);
+
+        return redirect()
+            ->route('owner.transactions.show', $dbOrder->order_slug)
+            ->with('status', "Manager Override berhasil diterapkan pada {$dbOrder->order_number} dan tercatat permanen di Audit Log.");
+    }
+
+    public function splitBillingStore(Request $request, string $code, PrdV21WorkflowService $prd): RedirectResponse
+    {
+        /** @var User $owner */
+        $owner = $request->user();
+        $dbOrder = ServiceOrder::findByCodeOrSlug($code)
+            ?? (ctype_digit($code) ? ServiceOrder::query()->find((int) $code) : null);
+
+        abort_if(! $dbOrder, 404, 'Transaksi tidak ditemukan.');
+
+        $validated = $request->validate([
+            'split_qty' => ['required', 'integer', 'min:1', 'max:100000'],
+            'unit_price' => ['nullable', 'numeric', 'min:1', 'max:999999999'],
+            'additional_fees' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
+            'ppn_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'pph23_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'split_label' => ['nullable', 'string', 'max:150'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $invoice = $prd->createSplitInvoice($owner, $dbOrder, $validated, $request);
+
+        return redirect()
+            ->route('owner.transactions.show', $dbOrder->order_slug)
+            ->with('status', "Split Billing {$invoice->invoice_number} ({$invoice->billed_qty} {$dbOrder->requested_unit}) berhasil diterbitkan.");
     }
 
     public function auditLogs(Request $request): View

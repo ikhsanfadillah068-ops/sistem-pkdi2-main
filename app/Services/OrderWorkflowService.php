@@ -192,6 +192,9 @@ class OrderWorkflowService
                 'billing_status' => 'NOT_READY',
                 'payment_status' => 'UNPAID',
                 'payment_method' => $paymentMethod,
+                'reordered_from_order_id' => isset($validated['reordered_from_order_id']) && $validated['reordered_from_order_id'] !== ''
+                    ? (int) $validated['reordered_from_order_id']
+                    : null,
                 'submitted_at' => now(),
             ]);
 
@@ -585,6 +588,12 @@ class OrderWorkflowService
             /** @var ServiceOrder $lockedOrder */
             $lockedOrder = ServiceOrder::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
 
+            if ($lockedOrder->is_locked) {
+                throw ValidationException::withMessages([
+                    'order_status' => 'Data kuantitas drum terkunci (READ-ONLY) setelah diserahkan ke Keuangan.',
+                ]);
+            }
+
             if (! in_array($lockedOrder->order_status, ['SUBMITTED', 'UNDER_REVIEW', 'NEEDS_CLARIFICATION', 'APPROVED', 'ACCEPTED', 'WAITING_RECEIPT', 'TRANSPORT_SCHEDULED', 'IN_TRANSIT', 'PREPARING', 'WAITING_WAREHOUSE', 'WAREHOUSE_REVIEW'], true)) {
                 throw ValidationException::withMessages([
                     'order_status' => 'Pesanan ini sudah melewati tahap penerimaan fisik di Gudang.',
@@ -701,7 +710,13 @@ class OrderWorkflowService
                 ]);
             }
 
-            if (! in_array($lockedOrder->order_status, ['RECEIVED', 'WAITING_RECEIPT', 'UNDER_REVIEW', 'ACCEPTED', 'NEEDS_CLARIFICATION'], true)) {
+            if ($lockedOrder->is_locked) {
+                throw ValidationException::withMessages([
+                    'order_status' => 'Data kuantitas drum terkunci (READ-ONLY) setelah diserahkan ke Keuangan.',
+                ]);
+            }
+
+            if (! in_array($lockedOrder->order_status, ['RECEIVED', 'GATE_IN_VERIFIED', 'WAITING_RECEIPT', 'UNDER_REVIEW', 'ACCEPTED', 'NEEDS_CLARIFICATION'], true)) {
                 throw ValidationException::withMessages([
                     'order_status' => 'Pesanan ini tidak berada pada tahap pemeriksaan dan penyortiran drum.',
                 ]);
@@ -1051,7 +1066,13 @@ class OrderWorkflowService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if (! in_array($lockedOrder->order_status, ['IN_PROGRESS', 'PREPARING'], true)
+            if ($lockedOrder->is_locked) {
+                throw ValidationException::withMessages([
+                    'order_status' => 'Data kuantitas drum terkunci (READ-ONLY) setelah diserahkan ke Keuangan.',
+                ]);
+            }
+
+            if (! in_array($lockedOrder->order_status, ['IN_PROGRESS', 'PREPARING', 'GATE_IN_VERIFIED'], true)
                 || ! in_array($lockedOrder->warehouse_status, ['IN_PROGRESS', 'PREPARING'], true)) {
                 throw ValidationException::withMessages([
                     'order_status' => 'Pembaruan progres hanya dapat dicatat ketika pesanan sedang diproses atau dipersiapkan di Gudang.',
@@ -1148,9 +1169,21 @@ class OrderWorkflowService
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            if ($lockedOrder->is_locked) {
+                throw ValidationException::withMessages([
+                    'order_status' => 'Data kuantitas drum terkunci (READ-ONLY) setelah diserahkan ke Keuangan (READY_FOR_BILLING).',
+                ]);
+            }
+
+            if ($lockedOrder->hasPendingDiscrepancy() && ! $lockedOrder->hasManagerOverride()) {
+                throw ValidationException::withMessages([
+                    'order_status' => 'Berita Acara Selisih masih menunggu persetujuan (ACC) Client sehingga belum dapat diselesaikan.',
+                ]);
+            }
+
             $allowedCompleteStatuses = $lockedOrder->isWasteTransport()
-                ? ['RECEIVED', 'SORTING', 'TRANSPORT_SCHEDULED', 'IN_TRANSIT', 'PREPARING', 'IN_PROGRESS', 'PROCESSING']
-                : ['IN_PROGRESS', 'PROCESSING', 'PREPARING'];
+                ? ['RECEIVED', 'GATE_IN_VERIFIED', 'SORTING', 'TRANSPORT_SCHEDULED', 'IN_TRANSIT', 'PREPARING', 'IN_PROGRESS', 'PROCESSING']
+                : ['IN_PROGRESS', 'PROCESSING', 'PREPARING', 'GATE_IN_VERIFIED'];
 
             if (! in_array($lockedOrder->order_status, $allowedCompleteStatuses, true)) {
                 throw ValidationException::withMessages([

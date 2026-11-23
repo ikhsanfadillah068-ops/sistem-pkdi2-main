@@ -34,6 +34,12 @@ class OrderPresenter
             'drumProduct',
             'reconditioningService',
             'gateLogs.checkedBy',
+            'warehouseGateLogs.recordedBy',
+            'discrepancyReports.approvedBy',
+            'discrepancyReports.createdBy',
+            'complianceDocs.uploadedBy',
+            'reconditionCert.issuedBy',
+            'managerOverrideBy',
             'latestReceipt.receivedBy',
             'latestSorting.sortedBy',
             'latestInspection.inspectedBy',
@@ -42,6 +48,7 @@ class OrderPresenter
             'billableTransaction.invoice.items.billableTransaction.serviceOrder',
             'billableTransaction.invoice.payments',
             'billableTransaction.invoice.billableTransactions.serviceOrder',
+            'invoices',
             'latestInvoice.items.billableTransaction.serviceOrder',
             'latestInvoice.payments',
             'latestInvoice.billableTransactions.serviceOrder',
@@ -51,6 +58,11 @@ class OrderPresenter
 
         $gateInLog = $order->gateLogs->where('check_type', 'GATE_IN')->sortByDesc('id')->first();
         $gateOutLog = $order->gateLogs->where('check_type', 'GATE_OUT')->sortByDesc('id')->first();
+        $whGateIn = $order->warehouseGateLogs->where('type', \App\Models\GateLog::TYPE_IN)->sortByDesc('id')->first();
+        $whGateOut = $order->warehouseGateLogs->where('type', \App\Models\GateLog::TYPE_OUT)->sortByDesc('id')->first();
+        $discrepancy = $order->discrepancyReports->sortByDesc('id')->first();
+        $reconditionCert = $order->reconditionCert;
+        $checklist = $order->complianceChecklist();
         $receipt = $order->latestReceipt;
         $sorting = $order->latestSorting;
         $inspection = $order->latestInspection;
@@ -261,9 +273,93 @@ class OrderPresenter
                 'vehicle_type' => $deliveryOrder->vehicle_type,
                 'license_plate' => $deliveryOrder->license_plate,
                 'driver_name' => $deliveryOrder->driver_name,
+                'qr_hash' => $deliveryOrder->qr_hash,
+                'verify_url' => $deliveryOrder->qr_hash ? url('/verify/'.$deliveryOrder->qr_hash) : null,
                 'issued_by' => ($deliveryOrder->issuedBy?->name ?? 'Kepala Gudang').' (Kepala Gudang)',
                 'issued_at' => $deliveryOrder->issued_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
             ] : null,
+            'is_locked' => (bool) $order->is_locked,
+            'handed_over_to_finance_at' => $order->handed_over_to_finance_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
+            'manager_override' => $order->hasManagerOverride() ? [
+                'active' => true,
+                'by' => $order->managerOverrideBy?->name ?? 'Direktur / Owner',
+                'at' => $order->manager_override_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
+                'reason' => $order->manager_override_reason,
+            ] : null,
+            'warehouse_gate_in' => $whGateIn ? [
+                'id' => $whGateIn->id,
+                'plate_number' => $whGateIn->plate_number,
+                'driver_name' => $whGateIn->driver_name,
+                'qty_good' => $whGateIn->qty_good,
+                'qty_dent' => $whGateIn->qty_dent,
+                'qty_reject' => $whGateIn->qty_reject,
+                'total_physical_qty' => $whGateIn->total_physical_qty,
+                'billable_qty' => $whGateIn->billableQuantity(),
+                'evidence_photos' => is_array($whGateIn->evidence_photos) ? $whGateIn->evidence_photos : [],
+                'notes' => $whGateIn->notes,
+                'officer' => ($whGateIn->recordedBy?->name ?? 'Kepala Gudang').' (Kepala Gudang)',
+                'recorded_at' => $whGateIn->recorded_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
+            ] : null,
+            'warehouse_gate_out' => $whGateOut ? [
+                'id' => $whGateOut->id,
+                'plate_number' => $whGateOut->plate_number,
+                'driver_name' => $whGateOut->driver_name,
+                'qty_out' => $whGateOut->total_physical_qty,
+                'notes' => $whGateOut->notes,
+                'officer' => ($whGateOut->recordedBy?->name ?? 'Kepala Gudang').' (Kepala Gudang)',
+                'recorded_at' => $whGateOut->recorded_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
+            ] : null,
+            'discrepancy_report' => $discrepancy ? [
+                'id' => $discrepancy->id,
+                'ba_number' => $discrepancy->ba_number,
+                'po_qty' => $discrepancy->po_qty,
+                'actual_good_qty' => $discrepancy->actual_good_qty,
+                'actual_dent_qty' => $discrepancy->actual_dent_qty,
+                'actual_reject_qty' => $discrepancy->actual_reject_qty,
+                'total_physical_qty' => $discrepancy->total_physical_qty,
+                'evidence_urls' => is_array($discrepancy->evidence_urls) ? $discrepancy->evidence_urls : [],
+                'gate_log_id' => $discrepancy->gate_log_id,
+                'notes' => $discrepancy->notes,
+                'status' => $discrepancy->status,
+                'magic_token' => $discrepancy->magic_token,
+                'magic_link' => url('/client/discrepancies/'.$discrepancy->magic_token),
+                'approved_by_name' => $discrepancy->approved_by_name,
+                'approved_ip' => $discrepancy->approved_ip,
+                'approved_at' => $discrepancy->approved_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
+                'created_at' => $discrepancy->created_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
+            ] : null,
+            'compliance_docs' => $order->complianceDocs->map(static fn ($doc): array => [
+                'id' => $doc->id,
+                'doc_type' => $doc->doc_type,
+                'type_label' => $doc->typeLabel(),
+                'document_number' => $doc->document_number,
+                'original_filename' => $doc->original_filename ?: basename($doc->file_path),
+                'is_verified' => (bool) $doc->is_verified,
+                'uploaded_by' => $doc->uploadedBy?->name ?? 'Kepala Gudang',
+                'uploaded_at' => $doc->created_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
+            ])->values()->all(),
+            'recondition_cert' => $reconditionCert ? [
+                'id' => $reconditionCert->id,
+                'cert_number' => $reconditionCert->cert_number,
+                'qr_hash' => $reconditionCert->qr_hash,
+                'qc_passed_qty' => $reconditionCert->qc_passed_qty,
+                'completion_date' => $reconditionCert->completion_date?->format('d M Y') ?? '-',
+                'issued_at' => $reconditionCert->issued_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
+                'verify_url' => url('/verify/'.$reconditionCert->qr_hash),
+            ] : null,
+            'compliance_checklist' => $checklist,
+            'split_invoices' => $order->invoices->where('status', '!=', 'VOIDED')->map(static fn (Invoice $inv): array => [
+                'id' => $inv->id,
+                'invoice_number' => $inv->invoice_number,
+                'invoice_slug' => $inv->invoice_slug,
+                'status' => $inv->status,
+                'is_split_invoice' => (bool) $inv->is_split_invoice,
+                'split_label' => $inv->split_label,
+                'billed_qty' => $inv->billed_qty,
+                'total' => (float) $inv->total_amount,
+                'paid' => (float) $inv->paid_amount,
+                'balance' => (float) $inv->balance_due,
+            ])->values()->all(),
             'timeline' => $timeline,
         ];
     }
@@ -369,6 +465,40 @@ class OrderPresenter
             $packageSummary = "{$prodName} · {$svcName} ({$reqQty} {$reqUnit})";
         }
 
+        $daysOverdue = 0;
+        if (! in_array($invoice->status, ['PAID', 'VOIDED', 'DRAFT'], true) && $invoice->due_date) {
+            $today = now('Asia/Jakarta')->startOfDay();
+            $due = $invoice->due_date->copy()->startOfDay();
+            if ($today->gt($due)) {
+                $daysOverdue = (int) $due->diffInDays($today);
+            }
+        }
+
+        [$agingBucket, $agingLabel, $agingTone] = match (true) {
+            $invoice->status === 'PAID' => ['PAID', 'Lunas', 'success'],
+            $invoice->status === 'VOIDED' => ['VOIDED', 'Void', 'neutral'],
+            $invoice->status === 'DRAFT' => ['DRAFT', 'Draft', 'neutral'],
+            $daysOverdue > 30 => ['OVERDUE_30_PLUS', "Telat > 30 Hari ({$daysOverdue} hr)", 'danger'],
+            $daysOverdue >= 15 => ['OVERDUE_15_30', "Telat 15-30 Hari ({$daysOverdue} hr)", 'warning'],
+            $daysOverdue >= 1 => ['OVERDUE_1_14', "Telat 1-14 Hari ({$daysOverdue} hr)", 'warning'],
+            default => ['CURRENT', 'Belum Jatuh Tempo', 'info'],
+        };
+
+        $rawPhone = preg_replace('/[^0-9]/', '', (string) ($invoice->clientCompany?->phone ?? '')) ?: '';
+        if (str_starts_with($rawPhone, '0')) {
+            $rawPhone = '62'.substr($rawPhone, 1);
+        }
+        $netDisplay = (float) ($invoice->net_receivable > 0 ? $invoice->net_receivable : $invoice->total_amount);
+        $waText = sprintf(
+            "Halo Finance %s,\n\nPengingat tagihan resmi PT Pulo Kencana Drum Industri (PKDI):\n• Nomor Invoice: %s\n• Nominal Transfer Bersih: Rp %s\n• Jatuh Tempo: %s\n• Unduh Berkas Tagihan: %s\n\nMohon konfirmasi pembayaran & Bukti Potong PPh 23 melalui Portal Client PKDI. Terima kasih.",
+            $invoice->clientCompany?->company_name ?? 'Client',
+            $invoice->invoice_number,
+            number_format($netDisplay, 0, ',', '.'),
+            $invoice->due_date?->format('d M Y') ?? '-',
+            url('/invoices/'.$invoice->invoice_slug.'/download-pdf')
+        );
+        $waReminderUrl = ($rawPhone !== '' ? "https://wa.me/{$rawPhone}" : 'https://wa.me/').'?text='.rawurlencode($waText);
+
         return [
             'id' => $invoice->id,
             'invoice_number' => $invoice->invoice_number,
@@ -383,6 +513,12 @@ class OrderPresenter
             'order_submitted_at' => $primaryOrder?->submitted_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
             'client_npwp' => $invoice->clientCompany?->npwp,
             'client_nib' => $invoice->clientCompany?->nib_number,
+            'client_phone' => $invoice->clientCompany?->phone,
+            'wa_reminder_url' => $waReminderUrl,
+            'aging_bucket' => $agingBucket,
+            'aging_label' => $agingLabel,
+            'aging_tone' => $agingTone,
+            'days_overdue' => $daysOverdue,
             'primary_order_number' => $orderNumbers[0] ?? ($primaryOrder?->order_number ?? '-'),
             'primary_order_slug' => $primaryOrder?->order_slug ?? (isset($orderNumbers[0]) ? PkdiDemoData::orderSlug($orderNumbers[0]) : ''),
             'order_numbers' => $orderNumbers,
@@ -394,15 +530,32 @@ class OrderPresenter
             'client_notes' => $primaryOrder?->client_notes,
             'transaction_count' => $txCount,
             'is_combined' => count($orderNumbers) > 1 || $invoice->items->count() > 1,
+            'is_split_invoice' => (bool) $invoice->is_split_invoice,
+            'split_label' => $invoice->split_label,
+            'billed_qty' => $invoice->billed_qty,
             'issue_date' => $invoice->issue_date?->format('d M Y') ?? '-',
             'issue_date_raw' => $invoice->issue_date?->toDateString() ?? '',
             'due_date' => $invoice->due_date?->format('d M Y') ?? '-',
             'subtotal' => (float) $invoice->subtotal_amount,
+            'additional_fees' => (float) ($invoice->additional_fees ?? 0),
             'adjustment' => (float) $invoice->adjustment_amount,
             'tax' => (float) $invoice->tax_amount,
+            'ppn_rate' => (float) ($invoice->ppn_rate ?? 0),
+            'ppn_amount' => (float) ($invoice->ppn_amount > 0 ? $invoice->ppn_amount : $invoice->tax_amount),
+            'pph23_rate' => (float) ($invoice->pph23_rate ?? 0),
+            'pph23_amount' => (float) ($invoice->pph23_amount ?? 0),
+            'net_receivable' => $netDisplay,
             'total' => (float) $invoice->total_amount,
             'paid' => (float) $invoice->paid_amount,
             'balance' => (float) $invoice->balance_due,
+            'efaktur_number' => $invoice->efaktur_number,
+            'has_efaktur' => ! empty($invoice->efaktur_path) && Storage::disk('local')->exists($invoice->efaktur_path),
+            'efaktur_uploaded_at' => $invoice->efaktur_uploaded_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
+            'has_pph23_proof' => ! empty($invoice->pph23_proof_path) && Storage::disk('local')->exists($invoice->pph23_proof_path),
+            'pph23_proof_uploaded_at' => $invoice->pph23_proof_uploaded_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
+            'pph23_verified' => (bool) $invoice->pph23_verified,
+            'qr_hash' => $invoice->qr_hash,
+            'verify_url' => $invoice->qr_hash ? url('/verify/'.$invoice->qr_hash) : null,
             'payment_instructions' => $invoice->payment_instructions ?: 'Transfer ke Rekening Resmi PT Pulo Kencana Drum Industri (BCA / Mandiri) dengan mencantumkan nomor invoice.',
             'preferred_payment_method' => $primaryOrder?->payment_method,
             'preferred_payment_method_display' => self::formatPaymentMethodWithAccount($primaryOrder?->payment_method),
@@ -426,6 +579,8 @@ class OrderPresenter
             'payments' => $invoice->payments->map(static function ($pay): array {
                 $path = (string) ($pay->proof_file_path ?? '');
                 $hasStoredFile = $path !== '' && Storage::disk('local')->exists($path);
+                $pphPath = (string) ($pay->pph23_proof_path ?? '');
+                $hasPphFile = $pphPath !== '' && Storage::disk('local')->exists($pphPath);
 
                 return [
                     'id' => $pay->id,
@@ -437,6 +592,7 @@ class OrderPresenter
                     'status' => $pay->verification_status,
                     'proof' => $path !== '' ? basename($path) : '-',
                     'has_file' => $hasStoredFile,
+                    'has_pph23_file' => $hasPphFile,
                     'notes' => $pay->verification_notes,
                 ];
             })->values()->all(),
@@ -483,7 +639,7 @@ class OrderPresenter
     public static function billableTransactions(array $filters = []): array
     {
         $query = BillableTransaction::query()
-            ->with(['serviceOrder', 'clientCompany', 'drumProduct', 'reconditioningService', 'invoice'])
+            ->with(['serviceOrder.complianceDocs', 'serviceOrder.reconditionCert', 'serviceOrder.warehouseGateLogs', 'serviceOrder.discrepancyReports', 'clientCompany.contracts', 'drumProduct', 'reconditioningService', 'invoice'])
             ->orderByDesc('ready_at')
             ->orderByDesc('id');
 
@@ -529,6 +685,23 @@ class OrderPresenter
 
             $billingMeta = config("pkdi.billing_statuses.{$tx->billing_status}", ['label' => $tx->billing_status, 'tone' => 'neutral']);
 
+            $contract = $tx->clientCompany?->contracts
+                ?->where('is_active', true)
+                ->first(static fn ($c): bool => mb_strtolower((string) $c->service_type) === mb_strtolower((string) $tx->service_name_snapshot));
+
+            $suggestedUnitPrice = $contract
+                ? (float) $contract->unit_price
+                : ($matchedTariff ? (float) $matchedTariff->unit_price : null);
+
+            $complianceChecklist = $tx->serviceOrder?->complianceChecklist() ?? [
+                'all_valid' => true,
+                'docs_valid' => true,
+                'has_gate_in' => false,
+                'has_pending_discrepancy' => false,
+                'has_manager_override' => false,
+                'items' => [],
+            ];
+
             return [
                 'id' => $tx->id,
                 'transaction_code' => $tx->transaction_code,
@@ -557,7 +730,9 @@ class OrderPresenter
                 'ready_at_raw' => $tx->ready_at?->timezone('Asia/Jakarta')->toDateString() ?? '',
                 'notes' => $tx->notes,
                 'suggested_tariff_id' => $matchedTariff?->id,
-                'suggested_unit_price' => $matchedTariff ? (float) $matchedTariff->unit_price : null,
+                'suggested_unit_price' => $suggestedUnitPrice,
+                'is_contract_price' => $contract !== null,
+                'compliance_checklist' => $complianceChecklist,
             ];
         })->values()->all();
     }

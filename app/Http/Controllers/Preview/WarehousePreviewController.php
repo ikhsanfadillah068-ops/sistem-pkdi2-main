@@ -8,6 +8,7 @@ use App\Models\ServiceOrder;
 use App\Models\User;
 use App\Services\BillingAndExitWorkflowService;
 use App\Services\OrderWorkflowService;
+use App\Services\PrdV21WorkflowService;
 use App\Services\ReportExportService;
 use App\Support\OrderPresenter;
 use Illuminate\Http\RedirectResponse;
@@ -29,17 +30,17 @@ class WarehousePreviewController extends Controller
 
         $waitingReceiptOrSort = array_values(array_filter(
             $orders,
-            static fn (array $o): bool => in_array($o['order_status'], ['APPROVED', 'ACCEPTED', 'WAITING_RECEIPT', 'TRANSPORT_SCHEDULED', 'IN_TRANSIT', 'RECEIVED', 'SORTING'], true)
+            static fn (array $o): bool => in_array($o['order_status'], ['APPROVED', 'ACCEPTED', 'WAITING_RECEIPT', 'TRANSPORT_SCHEDULED', 'IN_TRANSIT', 'RECEIVED', 'SORTING', 'DISCREPANCY_PENDING'], true)
         ));
 
         $activeWork = array_values(array_filter(
             $orders,
-            static fn (array $o): bool => in_array($o['order_status'], ['PREPARING', 'IN_PROGRESS'], true)
+            static fn (array $o): bool => in_array($o['order_status'], ['PREPARING', 'IN_PROGRESS', 'GATE_IN_VERIFIED'], true)
         ));
 
         $readyOrCompleted = array_values(array_filter(
             $orders,
-            static fn (array $o): bool => in_array($o['order_status'], ['READY', 'IN_DELIVERY', 'DELIVERED', 'COMPLETED', 'SERVICE_COMPLETED', 'WAITING_FINANCE', 'INVOICE_ISSUED', 'PAYMENT_PARTIAL', 'PAID', 'WAITING_EXIT_DOCUMENT', 'WAITING_GATE_OUT'], true)
+            static fn (array $o): bool => in_array($o['order_status'], ['READY', 'READY_FOR_BILLING', 'IN_DELIVERY', 'DELIVERED', 'COMPLETED', 'SERVICE_COMPLETED', 'WAITING_FINANCE', 'INVOICE_ISSUED', 'PAYMENT_PARTIAL', 'PAID', 'WAITING_EXIT_DOCUMENT', 'WAITING_GATE_OUT'], true)
         ));
 
         $stats = [
@@ -559,6 +560,140 @@ class WarehousePreviewController extends Controller
         return redirect()
             ->route('warehouse.delivery-orders.show', $order->order_slug)
             ->with('status', "Surat Jalan {$do->delivery_order_number} berhasil diterbitkan.");
+    }
+
+    public function gateInStore(Request $request, string $code, PrdV21WorkflowService $prd): RedirectResponse
+    {
+        /** @var User $gudang */
+        $gudang = $request->user();
+        $order = $this->findOrderOrFail($code);
+        Gate::authorize('manageWarehouse', $order);
+
+        $validated = $request->validate([
+            'plate_number' => ['required', 'string', 'min:3', 'max:30'],
+            'driver_name' => ['required', 'string', 'min:2', 'max:120'],
+            'qty_good' => ['required', 'integer', 'min:0', 'max:100000'],
+            'qty_dent' => ['required', 'integer', 'min:0', 'max:100000'],
+            'qty_reject' => ['required', 'integer', 'min:0', 'max:100000'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'evidence_photos' => ['nullable', 'array'],
+            'evidence_photos.*' => ['file', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+        ], [
+            'plate_number.required' => 'Nomor plat kendaraan wajib diisi.',
+            'driver_name.required' => 'Nama pengemudi wajib diisi.',
+            'qty_good.required' => 'Jumlah drum kondisi baik wajib diisi.',
+            'qty_dent.required' => 'Jumlah drum penyok wajib diisi.',
+            'qty_reject.required' => 'Jumlah drum reject wajib diisi.',
+            'evidence_photos.*.mimes' => 'Foto bukti harus berformat JPG, PNG, atau WEBP.',
+        ]);
+
+        $evidenceFiles = $request->file('evidence_photos', []);
+        if (! is_array($evidenceFiles)) {
+            $evidenceFiles = $evidenceFiles ? [$evidenceFiles] : [];
+        }
+
+        $res = $prd->recordGateIn(
+            gudang: $gudang,
+            order: $order,
+            validated: $validated,
+            evidenceFiles: $evidenceFiles,
+            request: $request,
+        );
+
+        $msg = $res['discrepancy']
+            ? "Gate-In dicatat dengan selisih/reject. Berita Acara Selisih {$res['discrepancy']->ba_number} otomatis diterbitkan dan menunggu ACC Client."
+            : "Gate-In Armada {$res['gate_log']->plate_number} terverifikasi sesuai PO ({$res['gate_log']->total_physical_qty} {$order->requested_unit}). Masuk antrean produksi.";
+
+        return redirect()
+            ->route('warehouse.orders.show', $order->order_slug)
+            ->with('status', $msg);
+    }
+
+    public function gateOutStore(Request $request, string $code, PrdV21WorkflowService $prd): RedirectResponse
+    {
+        /** @var User $gudang */
+        $gudang = $request->user();
+        $order = $this->findOrderOrFail($code);
+        Gate::authorize('manageWarehouse', $order);
+
+        $validated = $request->validate([
+            'plate_number' => ['required', 'string', 'min:3', 'max:30'],
+            'driver_name' => ['required', 'string', 'min:2', 'max:120'],
+            'qty_good' => ['required', 'integer', 'min:1', 'max:100000'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ], [
+            'plate_number.required' => 'Nomor plat kendaraan keluar wajib diisi.',
+            'driver_name.required' => 'Nama pengemudi wajib diisi.',
+        ]);
+
+        $gateOut = $prd->recordGateOut($gudang, $order, $validated, $request);
+
+        return redirect()
+            ->route('warehouse.orders.show', $order->order_slug)
+            ->with('status', "Gate-Out Armada {$gateOut->plate_number} ({$gateOut->total_physical_qty} {$order->requested_unit}) berhasil dicatat.");
+    }
+
+    public function complianceDocStore(Request $request, string $code, PrdV21WorkflowService $prd): RedirectResponse
+    {
+        /** @var User $gudang */
+        $gudang = $request->user();
+        $order = $this->findOrderOrFail($code);
+        Gate::authorize('manageWarehouse', $order);
+
+        $validated = $request->validate([
+            'doc_type' => ['required', 'string', 'in:SURAT_JALAN,MANIFEST_B3,BAST'],
+            'document_number' => ['nullable', 'string', 'max:100'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'document_file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+        ], [
+            'doc_type.required' => 'Jenis dokumen kepatuhan wajib dipilih.',
+            'document_file.required' => 'File dokumen (PDF/Foto) wajib diunggah.',
+            'document_file.mimes' => 'File dokumen harus berformat PDF, JPG, PNG, atau WEBP.',
+        ]);
+
+        $doc = $prd->uploadComplianceDoc(
+            gudang: $gudang,
+            order: $order,
+            validated: $validated,
+            file: $request->file('document_file'),
+            request: $request,
+        );
+
+        return redirect()
+            ->route('warehouse.orders.show', $order->order_slug)
+            ->with('status', "Dokumen kepatuhan {$doc->typeLabel()} berhasil diunggah dan divalidasi.");
+    }
+
+    public function reconditionCertStore(
+        Request $request,
+        string $code,
+        PrdV21WorkflowService $prd,
+        ReportExportService $exporter,
+    ): RedirectResponse {
+        /** @var User $gudang */
+        $gudang = $request->user();
+        $order = $this->findOrderOrFail($code);
+        Gate::authorize('manageWarehouse', $order);
+
+        $cert = $prd->issueReconditionCert($gudang, $order, $exporter, $request);
+
+        return redirect()
+            ->route('warehouse.orders.show', $order->order_slug)
+            ->with('status', "Sertifikat Rekondisi {$cert->cert_number} dengan QR Code Verifikasi berhasil diterbitkan.");
+    }
+
+    public function handoverFinanceStore(Request $request, string $code, PrdV21WorkflowService $prd): RedirectResponse
+    {
+        /** @var User $gudang */
+        $gudang = $request->user();
+        $order = $this->findOrderOrFail($code);
+        Gate::authorize('manageWarehouse', $order);
+
+        $updated = $prd->handoverToFinance($gudang, $order, $request);
+
+        return redirect()
+            ->route('warehouse.orders.show', $updated->order_slug)
+            ->with('status', "Pesanan {$updated->order_number} berhasil diserahkan ke Keuangan (READY_FOR_BILLING). Data kuantitas drum kini dikunci (READ-ONLY).");
     }
 
     private function findOrderOrFail(string $code): ServiceOrder

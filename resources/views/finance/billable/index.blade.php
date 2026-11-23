@@ -121,7 +121,16 @@
                                 </td>
                                 <td>
                                     <p class="font-medium">{{ $tx['product_name'] }} · {{ $tx['service_name'] }}</p>
-                                    <p class="text-xs text-muted-foreground">{{ $tx['transaction_type_label'] }}</p>
+                                    <p class="text-xs text-muted-foreground">{{ $tx['transaction_type_label'] }} @if (!empty($tx['is_contract_price'])) · <span class="text-success font-medium">Tarif Kontrak</span> @endif</p>
+                                    @if (!empty($tx['compliance_checklist']['items']))
+                                        <div class="mt-1 flex flex-wrap gap-1">
+                                            @foreach ($tx['compliance_checklist']['items'] as $ci)
+                                                <span class="badge {{ $ci['valid'] ? 'badge-success' : 'badge-warning' }} text-[10px] px-1.5 py-0.5">
+                                                    {{ $ci['label'] }}: {{ $ci['valid'] ? 'Valid' : 'Pending' }}
+                                                </span>
+                                            @endforeach
+                                        </div>
+                                    @endif
                                 </td>
                                 <td class="text-right tabular-nums whitespace-nowrap">
                                     <span class="font-semibold">{{ $tx['billable_quantity'] }} {{ $tx['unit'] }} selesai</span>

@@ -17,6 +17,7 @@ class Payment extends Model
         'payment_method',
         'reference_number',
         'proof_file_path',
+        'pph23_proof_path',
         'verification_status',
         'verification_notes',
         'submitted_by_user_id',

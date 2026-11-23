@@ -30,10 +30,25 @@
             </p>
         </div>
         <div class="flex flex-wrap gap-2">
+            @if (!in_array($inv['status'], ['PAID', 'VOIDED', 'DRAFT'], true) && !empty($inv['wa_reminder_url']))
+                <a href="{{ $inv['wa_reminder_url'] }}" target="_blank" rel="noopener" class="btn btn-success btn-sm">
+                    Kirim Pengingat WA
+                </a>
+            @endif
             <a href="{{ route('invoices.download-pdf', $invoiceSlug) }}" class="btn btn-outline btn-sm">
                 <x-ui.icon name="printer" />
                 Unduh PDF Invoice
             </a>
+            <a href="{{ route('invoices.bundle-zip', $invoiceSlug) }}" class="btn btn-outline btn-sm">
+                <x-ui.icon name="download" />
+                Paket ZIP (5 PDF)
+            </a>
+            @if (!empty($inv['verify_url']))
+                <a href="{{ $inv['verify_url'] }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                    <x-ui.icon name="shield" />
+                    Verifikasi QR
+                </a>
+            @endif
             @if (!in_array($inv['status'], ['PAID', 'VOIDED'], true))
                 <button type="button" class="btn btn-outline btn-sm" data-modal-open="#modal-revise-invoice">
                     <x-ui.icon name="edit" />
@@ -82,20 +97,32 @@
                             @endforeach
                         </tbody>
                         <tfoot>
+                            @if (($inv['additional_fees'] ?? 0) > 0)
+                                <tr>
+                                    <td colspan="3" class="text-right text-muted-foreground">Biaya Tambahan / Pemusnahan Reject</td>
+                                    <td class="text-right tabular-nums">Rp {{ number_format($inv['additional_fees'], 0, ',', '.') }}</td>
+                                </tr>
+                            @endif
                             @if (($inv['adjustment'] ?? 0) > 0)
                                 <tr>
                                     <td colspan="3" class="text-right text-muted-foreground">Penyesuaian / Potongan</td>
                                     <td class="text-right tabular-nums">-Rp {{ number_format($inv['adjustment'], 0, ',', '.') }}</td>
                                 </tr>
                             @endif
-                            @if (($inv['tax'] ?? 0) > 0)
+                            @if (($inv['ppn_amount'] ?? $inv['tax'] ?? 0) > 0)
                                 <tr>
-                                    <td colspan="3" class="text-right text-muted-foreground">Pajak / PPN</td>
-                                    <td class="text-right tabular-nums">Rp {{ number_format($inv['tax'], 0, ',', '.') }}</td>
+                                    <td colspan="3" class="text-right text-muted-foreground">PPN ({{ ($inv['ppn_rate'] ?? 0) > 0 ? $inv['ppn_rate'] : 11 }}%)</td>
+                                    <td class="text-right tabular-nums">Rp {{ number_format($inv['ppn_amount'] ?? $inv['tax'], 0, ',', '.') }}</td>
+                                </tr>
+                            @endif
+                            @if (($inv['pph23_amount'] ?? 0) > 0)
+                                <tr>
+                                    <td colspan="3" class="text-right text-warning">Estimasi Potongan PPh Pasal 23 ({{ ($inv['pph23_rate'] ?? 0) > 0 ? $inv['pph23_rate'] : 2 }}%)</td>
+                                    <td class="text-right tabular-nums text-warning">-Rp {{ number_format($inv['pph23_amount'], 0, ',', '.') }}</td>
                                 </tr>
                             @endif
                             <tr>
-                                <td colspan="3" class="text-right font-semibold">Total Tagihan</td>
+                                <td colspan="3" class="text-right font-semibold">Net Receivable (Total Transfer Bersih)</td>
                                 <td class="text-right font-semibold tabular-nums">Rp {{ number_format($inv['total'], 0, ',', '.') }}</td>
                             </tr>
                             <tr>
@@ -108,6 +135,63 @@
                             </tr>
                         </tfoot>
                     </table>
+                </div>
+            </x-ui.card>
+
+            <x-ui.card title="Dokumen Perpajakan (e-Faktur & Bukti Potong PPh 23)" description="Unggah PDF e-Faktur agar langsung masuk paket ZIP Client, serta periksa Bukti Potong PPh 23 dari Client.">
+                <div class="space-y-4">
+                    <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3.5 text-sm">
+                        <div>
+                            <p class="font-semibold">PDF e-Faktur Pajak</p>
+                            @if (!empty($inv['has_efaktur']))
+                                <p class="text-xs text-success">Terunggah ({{ $inv['efaktur_uploaded_at'] }})@if (!empty($inv['efaktur_number'])) · No. {{ $inv['efaktur_number'] }}@endif</p>
+                            @else
+                                <p class="text-xs text-muted-foreground">Belum diunggah oleh divisi Keuangan.</p>
+                            @endif
+                        </div>
+                        @if (!empty($inv['has_efaktur']))
+                            <a href="{{ route('invoices.efaktur.show', $invoiceSlug) }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                                <x-ui.icon name="download" class="h-3.5 w-3.5" />
+                                Unduh PDF e-Faktur
+                            </a>
+                        @endif
+                    </div>
+
+                    <form action="{{ route('finance.invoices.efaktur.store', $invoiceSlug) }}" method="POST" enctype="multipart/form-data" class="grid gap-3 rounded-lg border bg-muted/20 p-3.5 sm:grid-cols-12 sm:items-end" data-prevent-double-submit>
+                        @csrf
+                        <div class="sm:col-span-4">
+                            <x-ui.field label="Nomor Seri Faktur Pajak" name="efaktur_number">
+                                <x-ui.input name="efaktur_number" :value="old('efaktur_number', $inv['efaktur_number'] ?? '')" placeholder="010.000-26.00000001" />
+                            </x-ui.field>
+                        </div>
+                        <div class="sm:col-span-5">
+                            <x-ui.field label="File PDF e-Faktur" name="efaktur_file" required>
+                                <input name="efaktur_file" type="file" accept=".pdf" class="input file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs" required>
+                            </x-ui.field>
+                        </div>
+                        <div class="sm:col-span-3">
+                            <x-ui.button type="submit" variant="primary" class="w-full">Unggah e-Faktur</x-ui.button>
+                        </div>
+                    </form>
+
+                    <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3.5 text-sm">
+                        <div>
+                            <p class="font-semibold">Bukti Potong PPh Pasal 23 (dari Client)</p>
+                            @if (!empty($inv['has_pph23_proof']))
+                                <p class="text-xs text-success">Sudah diunggah Client ({{ $inv['pph23_proof_uploaded_at'] }})</p>
+                            @elseif (($inv['pph23_amount'] ?? 0) > 0)
+                                <p class="text-xs text-warning">Wajib diunggah Client sebelum verifikasi pelunasan (PAID).</p>
+                            @else
+                                <p class="text-xs text-muted-foreground">Tidak ada pemotongan PPh 23 pada invoice ini.</p>
+                            @endif
+                        </div>
+                        @if (!empty($inv['has_pph23_proof']))
+                            <a href="{{ route('invoices.pph23.show', $invoiceSlug) }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                                <x-ui.icon name="download" class="h-3.5 w-3.5" />
+                                Lihat Bukti Potong PPh 23
+                            </a>
+                        @endif
+                    </div>
                 </div>
             </x-ui.card>
 

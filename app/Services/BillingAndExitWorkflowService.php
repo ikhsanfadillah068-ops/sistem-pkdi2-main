@@ -181,14 +181,29 @@ class BillingAndExitWorkflowService
         return DB::transaction(function () use ($keuangan, $order, $validated, $request): Invoice {
             /** @var ServiceOrder $lockedOrder */
             $lockedOrder = ServiceOrder::query()
-                ->with(['result', 'latestInvoice'])
+                ->with(['result', 'latestInvoice', 'warehouseGateLogs', 'discrepancyReports', 'complianceDocs', 'reconditionCert'])
                 ->whereKey($order->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
+            if ($lockedOrder->hasPendingDiscrepancy() && ! $lockedOrder->hasManagerOverride()) {
+                throw ValidationException::withMessages([
+                    'order_status' => 'Keuangan tidak dapat menerbitkan Invoice sebelum Berita Acara Selisih disetujui (ACC) oleh Client. Gunakan Split Billing atau Manager Override bila diperlukan.',
+                ]);
+            }
+
+            if ($lockedOrder->warehouseGateLogs->where('type', 'IN')->isNotEmpty() && ! $lockedOrder->hasManagerOverride()) {
+                $checklist = $lockedOrder->complianceChecklist();
+                if (! $checklist['docs_valid']) {
+                    throw ValidationException::withMessages([
+                        'order_status' => 'Keuangan dilarang menerbitkan Invoice sebelum seluruh dokumen kepatuhan wajib (Surat Jalan / Manifest B3 / BAST / Sertifikat Rekondisi) berstatus VALID.',
+                    ]);
+                }
+            }
+
             if (! $lockedOrder->result
                 || $lockedOrder->warehouse_status !== 'COMPLETED'
-                || (! in_array($lockedOrder->order_status, ['READY', 'IN_DELIVERY', 'DELIVERED', 'COMPLETED', 'WAITING_FINANCE', 'SERVICE_COMPLETED', 'INVOICE_ISSUED'], true)
+                || (! in_array($lockedOrder->order_status, ['READY', 'READY_FOR_BILLING', 'IN_DELIVERY', 'DELIVERED', 'COMPLETED', 'WAITING_FINANCE', 'SERVICE_COMPLETED', 'INVOICE_ISSUED'], true)
                     && $lockedOrder->billing_status !== 'READY_TO_BILL')) {
                 throw ValidationException::withMessages([
                     'order_status' => 'Invoice hanya dapat dibuat dari pesanan yang pekerjaan gudangnya telah selesai dan memiliki hasil kerja aktual.',
@@ -215,13 +230,17 @@ class BillingAndExitWorkflowService
                 ? (float) $validated['unit_price']
                 : (float) ($tariff?->unit_price ?? 0);
 
+            $additionalFees = isset($validated['additional_fees']) && $validated['additional_fees'] !== ''
+                ? round((float) $validated['additional_fees'], 2)
+                : 0.0;
+
             $adjustment = isset($validated['adjustment_amount']) && $validated['adjustment_amount'] !== ''
                 ? (float) $validated['adjustment_amount']
                 : 0.0;
 
-            $tax = isset($validated['tax_amount']) && $validated['tax_amount'] !== ''
-                ? (float) $validated['tax_amount']
-                : 0.0;
+            $usePrdTaxCalc = filter_var($validated['use_prd_tax_calc'] ?? false, FILTER_VALIDATE_BOOLEAN)
+                || array_key_exists('ppn_rate', $validated)
+                || array_key_exists('pph23_rate', $validated);
 
             if ($quantity <= 0) {
                 throw ValidationException::withMessages([
@@ -230,8 +249,27 @@ class BillingAndExitWorkflowService
             }
 
             $lineTotal = round($quantity * $unitPrice, 2);
-            $subtotal = $lineTotal;
-            $total = round($subtotal - $adjustment + $tax, 2);
+            $subtotal = round($lineTotal + $additionalFees, 2);
+
+            if ($usePrdTaxCalc) {
+                $ppnRate = isset($validated['ppn_rate']) && $validated['ppn_rate'] !== '' ? (float) $validated['ppn_rate'] : 11.0;
+                $pph23Rate = isset($validated['pph23_rate']) && $validated['pph23_rate'] !== '' ? (float) $validated['pph23_rate'] : 2.0;
+                $ppnAmount = round($subtotal * ($ppnRate / 100), 2);
+                $pph23Amount = round($subtotal * ($pph23Rate / 100), 2);
+                $tax = $ppnAmount;
+                $netReceivable = round($subtotal - $adjustment + $ppnAmount - $pph23Amount, 2);
+                $total = $netReceivable;
+            } else {
+                $tax = isset($validated['tax_amount']) && $validated['tax_amount'] !== ''
+                    ? (float) $validated['tax_amount']
+                    : 0.0;
+                $ppnRate = $tax > 0 && $subtotal > 0 ? round(($tax / $subtotal) * 100, 2) : 0.0;
+                $ppnAmount = $tax;
+                $pph23Rate = 0.0;
+                $pph23Amount = 0.0;
+                $total = round($subtotal - $adjustment + $tax, 2);
+                $netReceivable = $total;
+            }
 
             if ($total <= 0 || $total > 999999999999) {
                 throw ValidationException::withMessages([
@@ -277,6 +315,8 @@ class BillingAndExitWorkflowService
                 ? (string) $validated['due_date']
                 : now('Asia/Jakarta')->addDays(7)->toDateString();
 
+            $qrHash = $existingInvoice?->qr_hash ?? hash('sha256', $invoiceNumber.'|'.$lockedOrder->order_number.'|'.\Illuminate\Support\Str::random(24));
+
             $invoice = Invoice::query()->updateOrCreate(
                 ['id' => $existingInvoice?->id],
                 [
@@ -286,11 +326,19 @@ class BillingAndExitWorkflowService
                     'client_company_id' => $lockedOrder->client_company_id,
                     'revision_number' => $existingInvoice ? $existingInvoice->revision_number : 0,
                     'subtotal_amount' => $subtotal,
+                    'additional_fees' => $additionalFees,
                     'adjustment_amount' => $adjustment,
                     'tax_amount' => $tax,
+                    'ppn_rate' => $ppnRate,
+                    'ppn_amount' => $ppnAmount,
+                    'pph23_rate' => $pph23Rate,
+                    'pph23_amount' => $pph23Amount,
+                    'net_receivable' => $netReceivable,
                     'total_amount' => $total,
                     'paid_amount' => 0,
                     'balance_due' => $total,
+                    'billed_qty' => $quantity,
+                    'qr_hash' => $qrHash,
                     'status' => $status,
                     'issue_date' => $issueDate,
                     'due_date' => $dueDate,
@@ -503,7 +551,30 @@ class BillingAndExitWorkflowService
                 ];
             }
 
-            $total = round($subtotal - $adjustment + $tax, 2);
+            $usePrdTaxCalc = filter_var($validated['use_prd_tax_calc'] ?? false, FILTER_VALIDATE_BOOLEAN)
+                || array_key_exists('ppn_rate', $validated)
+                || array_key_exists('pph23_rate', $validated);
+            $additionalFees = isset($validated['additional_fees']) && $validated['additional_fees'] !== ''
+                ? round((float) $validated['additional_fees'], 2)
+                : 0.0;
+
+            $subtotal = round($subtotal + $additionalFees, 2);
+            if ($usePrdTaxCalc) {
+                $ppnRate = isset($validated['ppn_rate']) && $validated['ppn_rate'] !== '' ? (float) $validated['ppn_rate'] : 11.0;
+                $pph23Rate = isset($validated['pph23_rate']) && $validated['pph23_rate'] !== '' ? (float) $validated['pph23_rate'] : 2.0;
+                $ppnAmount = round($subtotal * ($ppnRate / 100), 2);
+                $pph23Amount = round($subtotal * ($pph23Rate / 100), 2);
+                $tax = $ppnAmount;
+                $netReceivable = round($subtotal - $adjustment + $ppnAmount - $pph23Amount, 2);
+                $total = $netReceivable;
+            } else {
+                $ppnRate = $tax > 0 && $subtotal > 0 ? round(($tax / $subtotal) * 100, 2) : 0.0;
+                $ppnAmount = $tax;
+                $pph23Rate = 0.0;
+                $pph23Amount = 0.0;
+                $total = round($subtotal - $adjustment + $tax, 2);
+                $netReceivable = $total;
+            }
             if ($total <= 0 || $total > 999999999999) {
                 throw ValidationException::withMessages([
                     'unit_prices' => 'Total tagihan gabungan harus berada di antara Rp 1 dan Rp 999.999.999.999.',
@@ -513,6 +584,7 @@ class BillingAndExitWorkflowService
             /** @var BillableTransaction $firstTx */
             $firstTx = $transactions->first();
             [$invoiceNumber, $invoiceSlug] = $this->generateUniqueInvoiceNumber();
+            $qrHash = hash('sha256', $invoiceNumber.'|'.($firstTx->serviceOrder?->order_number ?? 'COMBINED').'|'.\Illuminate\Support\Str::random(24));
 
             $issueDate = isset($validated['issue_date']) && $validated['issue_date'] !== ''
                 ? (string) $validated['issue_date']
@@ -528,11 +600,19 @@ class BillingAndExitWorkflowService
                 'client_company_id' => $firstTx->client_company_id,
                 'revision_number' => 0,
                 'subtotal_amount' => $subtotal,
+                'additional_fees' => $additionalFees,
                 'adjustment_amount' => $adjustment,
                 'tax_amount' => $tax,
+                'ppn_rate' => $ppnRate,
+                'ppn_amount' => $ppnAmount,
+                'pph23_rate' => $pph23Rate,
+                'pph23_amount' => $pph23Amount,
+                'net_receivable' => $netReceivable,
                 'total_amount' => $total,
                 'paid_amount' => 0,
                 'balance_due' => $total,
+                'billed_qty' => (int) collect($linePayloads)->sum('quantity'),
+                'qr_hash' => $qrHash,
                 'status' => $isDraft ? 'DRAFT' : 'ISSUED',
                 'issue_date' => $issueDate,
                 'due_date' => $dueDate,
@@ -937,10 +1017,11 @@ class BillingAndExitWorkflowService
         array $validated,
         ?UploadedFile $proofFile = null,
         ?Request $request = null,
+        ?UploadedFile $pph23ProofFile = null,
     ): Payment {
         Gate::forUser($client)->authorize('submitPaymentProof', $invoice);
 
-        return DB::transaction(function () use ($client, $invoice, $validated, $proofFile, $request): Payment {
+        return DB::transaction(function () use ($client, $invoice, $validated, $proofFile, $pph23ProofFile, $request): Payment {
             /** @var Invoice $lockedInvoice */
             $lockedInvoice = Invoice::query()
                 ->with('serviceOrder')
@@ -1001,6 +1082,15 @@ class BillingAndExitWorkflowService
                 $proofPath = trim((string) $validated['proof_file_name']);
             }
 
+            $pph23ProofPath = null;
+            if ($pph23ProofFile) {
+                $pph23ProofPath = $pph23ProofFile->store('pph23-proofs', 'local');
+                $lockedInvoice->update([
+                    'pph23_proof_path' => $pph23ProofPath,
+                    'pph23_proof_uploaded_at' => now(),
+                ]);
+            }
+
             $paymentNumber = $this->generateUniquePaymentNumber();
 
             $payment = Payment::query()->create([
@@ -1012,6 +1102,7 @@ class BillingAndExitWorkflowService
                 'payment_method' => $paymentMethod,
                 'reference_number' => $referenceNumber,
                 'proof_file_path' => $proofPath,
+                'pph23_proof_path' => $pph23ProofPath,
                 'verification_status' => 'PENDING_VERIFICATION',
                 'submitted_by_user_id' => $client->id,
             ]);
@@ -1225,6 +1316,15 @@ class BillingAndExitWorkflowService
             }
 
             // Keputusan VERIFIED
+            if ((float) $lockedInvoice->pph23_amount > 0
+                && empty($lockedInvoice->pph23_proof_path)
+                && empty($lockedPayment->pph23_proof_path)
+                && ! filter_var($validated['bypass_pph23_check'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                throw ValidationException::withMessages([
+                    'pph23_proof' => 'Invoice ini memuat pemotongan PPh Pasal 23. Status baru dapat diubah menjadi Lunas (PAID) setelah Client mengunggah file PDF Bukti Potong PPh 23.',
+                ]);
+            }
+
             $lockedPayment->update([
                 'verification_status' => 'VERIFIED',
                 'verification_notes' => $notesOrReason !== '' ? $notesOrReason : 'Pembayaran sah terverifikasi mutasi rekening.',
@@ -1248,6 +1348,7 @@ class BillingAndExitWorkflowService
                 'paid_amount' => $verifiedSum,
                 'balance_due' => $balanceDue,
                 'status' => $newInvoiceStatus,
+                'pph23_verified' => ((float) $lockedInvoice->pph23_amount > 0 && (! empty($lockedInvoice->pph23_proof_path) || ! empty($lockedPayment->pph23_proof_path))) ? true : $lockedInvoice->pph23_verified,
                 'paid_at' => $isFullyPaid ? now() : null,
             ]);
 
@@ -1497,6 +1598,8 @@ class BillingAndExitWorkflowService
 
             $oldOrderStatus = $lockedOrder->order_status;
 
+            $doQrHash = $existingDo?->qr_hash ?? hash('sha256', $doNumber.'|'.$lockedOrder->order_number.'|'.\Illuminate\Support\Str::random(24));
+
             $deliveryOrder = DeliveryOrder::query()->updateOrCreate(
                 ['id' => $existingDo?->id],
                 [
@@ -1512,6 +1615,7 @@ class BillingAndExitWorkflowService
                     'driver_name' => $driverName,
                     'status' => 'ISSUED',
                     'notes' => isset($validated['notes']) ? trim((string) $validated['notes']) : null,
+                    'qr_hash' => $doQrHash,
                     'issued_by_user_id' => $gudang->id,
                     'issued_at' => now(),
                 ]

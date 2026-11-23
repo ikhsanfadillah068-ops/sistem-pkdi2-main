@@ -55,6 +55,65 @@
                 ['label' => 'Total & Terbayar', 'value' => !empty($order['invoice']) ? 'Rp '.number_format($order['invoice']['total'], 0, ',', '.').' / Terbayar Rp '.number_format($order['invoice']['paid'], 0, ',', '.') : '-'],
                 ['label' => 'Sisa Piutang', 'value' => !empty($order['invoice']) ? 'Rp '.number_format($order['invoice']['balance'], 0, ',', '.') : '-'],
             ]" />
+
+            {{-- FASE 4 (5.1): KONTROL EXCEPTION HANDLING - MANAGER OVERRIDE & SPLIT BILLING --}}
+            @php
+                $checklist = $order['compliance_checklist'] ?? ['items' => [], 'all_valid' => false];
+                $gateIn = $order['warehouse_gate_in'] ?? null;
+                $ba = $order['discrepancy_report'] ?? null;
+                $billableMax = (int) ($gateIn['billable_qty'] ?? $order['result']['completed_qty'] ?? $order['requested_qty'] ?? 1);
+            @endphp
+            <x-ui.card title="4. Kontrol Kepatuhan, Manager Override & Split Billing (Direktur)" description="Otorisasi khusus Direktur/Owner untuk membuka kunci transaksi tertahan dokumen atau memecah penagihan parsial. Semua tindakan tercatat permanen di Audit Log.">
+                <div class="space-y-5">
+                    <div class="flex flex-wrap gap-2">
+                        @foreach ($checklist['items'] as $ci)
+                            <span class="badge {{ $ci['valid'] ? 'badge-success' : 'badge-warning' }}">
+                                {{ $ci['label'] }}: {{ $ci['valid'] ? 'Valid' : 'Pending' }}
+                            </span>
+                        @endforeach
+                        @if (!empty($order['recondition_cert']))
+                            <a href="{{ $order['recondition_cert']['verify_url'] }}" target="_blank" rel="noopener" class="badge badge-info hover:underline">
+                                Verifikasi QR {{ $order['recondition_cert']['cert_number'] }}
+                            </a>
+                        @endif
+                    </div>
+
+                    @if (!empty($order['manager_override']['active']))
+                        <x-ui.alert variant="warning" title="Manager Override Sudah Diterapkan">
+                            Oleh <strong>{{ $order['manager_override']['by'] }}</strong> pada {{ $order['manager_override']['at'] }}. Alasan: {{ $order['manager_override']['reason'] }}
+                        </x-ui.alert>
+                    @else
+                        <form action="{{ route('owner.transactions.override', $order['order_slug']) }}" method="POST" class="space-y-3 rounded-lg border bg-muted/20 p-4" novalidate data-validate-form data-prevent-double-submit>
+                            @csrf
+                            <p class="text-sm font-semibold">Manager Override (Buka Kunci Dokumen / Transaksi Tertahan)</p>
+                            <x-ui.field label="Alasan Resmi Manager Override (Wajib minimal 20 karakter)" name="override_reason" :error="$errors->first('override_reason')" required>
+                                <x-ui.textarea name="override_reason" rows="2" minlength="20" placeholder="Jelaskan alasan otorisasi direksi membuka kunci dokumen transaksi ini (min. 20 karakter)..." required>{{ old('override_reason') }}</x-ui.textarea>
+                            </x-ui.field>
+                            <x-ui.button type="submit" variant="destructive">
+                                <x-ui.icon name="shield" class="h-4 w-4" />
+                                Terapkan Manager Override (Tercatat di Audit Log)
+                            </x-ui.button>
+                        </form>
+                    @endif
+
+                    <form action="{{ route('owner.transactions.split-billing', $order['order_slug']) }}" method="POST" class="space-y-3 rounded-lg border p-4" data-prevent-double-submit>
+                        @csrf
+                        <p class="text-sm font-semibold">Penagihan Parsial (Split Billing)</p>
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <x-ui.field label="Jumlah Drum Tagih Parsial" name="split_qty" required>
+                                <x-ui.input name="split_qty" type="number" min="1" :max="max(1, $billableMax)" :value="max(1, $billableMax)" required />
+                            </x-ui.field>
+                            <x-ui.field label="Label Sub-Tagihan" name="split_label">
+                                <x-ui.input name="split_label" :value="'Tagihan Parsial ('.$billableMax.' '.$order['unit'].' Disetujui)'" />
+                            </x-ui.field>
+                        </div>
+                        <x-ui.button type="submit" variant="outline">
+                            <x-ui.icon name="layers" class="h-4 w-4" />
+                            Terbitkan Tagihan Parsial (Split Billing)
+                        </x-ui.button>
+                    </form>
+                </div>
+            </x-ui.card>
         </div>
 
         <div class="space-y-6">

@@ -16,7 +16,7 @@ class PuzzleCaptchaController extends Controller
 
     private const CANVAS_HEIGHT = 156;
 
-    private const TOLERANCE_PX = 8;
+    private const TOLERANCE_PX = 12;
 
     public function challenge(Request $request): JsonResponse
     {

@@ -1,8 +1,9 @@
 @php
-    $selectedType = old('transaction_type', \App\Models\ServiceOrder::TYPE_RECONDITIONING);
+    $ro = $reorderOrder ?? null;
+    $selectedType = old('transaction_type', $ro?->transaction_type ?? \App\Models\ServiceOrder::TYPE_RECONDITIONING);
     $isReconditioning = ! in_array($selectedType, [\App\Models\ServiceOrder::TYPE_WASTE_TRANSPORT, 'DRUM_SALE'], true);
     $paymentMethodGroups = $paymentMethodGroups ?? config('pkdi.payment_methods', []);
-    $selectedPaymentMethod = old('payment_method', '');
+    $selectedPaymentMethod = old('payment_method', $ro?->payment_method ?? '');
     $accountsByMethod = collect($paymentAccounts ?? [])->keyBy('payment_method');
     $selectedAccount = $selectedPaymentMethod !== '' ? $accountsByMethod->get($selectedPaymentMethod) : null;
     $resolvedCompany = $clientCompany ?? auth()->user()?->clientCompany;
@@ -18,9 +19,18 @@
         <x-ui.page-header title="Pengajuan Permintaan Layanan Baru" description="Lengkapi rincian kemasan, tanggal penyerahan, dan metode pembayaran untuk diajukan ke PT PKDI." />
     </div>
 
+    @if ($ro)
+        <x-ui.alert variant="info" title="Pesan Ulang (1-Click Re-Order) dari {{ $ro->order_number }}">
+            Rincian layanan, kemasan, kuantitas, dan catatan dari pesanan sebelumnya telah disalin ke draf ini. Periksa lalu kirim pesanan.
+        </x-ui.alert>
+    @endif
+
     <form action="{{ route('client.orders.store') }}" method="POST" class="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]" novalidate data-validate-form data-prevent-double-submit data-transaction-form>
         @csrf
         <input type="hidden" name="origin_company_name" value="{{ old('origin_company_name', $companyName ?: (auth()->user()?->companyDisplay() ?? '')) }}">
+        @if ($ro)
+            <input type="hidden" name="reordered_from_order_id" value="{{ $ro->id }}">
+        @endif
         <div class="space-y-6">
             <x-ui.card title="1. Jenis Permintaan Layanan" description="Pilih layanan operasional yang dibutuhkan perusahaan Anda.">
                 <div class="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Pilih jenis layanan">
@@ -57,7 +67,7 @@
                         <select id="f-drum_product_id" name="drum_product_id" class="select @error('drum_product_id') input-invalid @enderror" data-product-select required>
                             <option value="">Pilih jenis drum / kemasan</option>
                             @foreach ($drumProducts as $product)
-                                <option value="{{ $product->id }}" data-default-unit="{{ $product->default_unit }}" data-product-name="{{ $product->name }}" @selected((string) old('drum_product_id') === (string) $product->id)>
+                                <option value="{{ $product->id }}" data-default-unit="{{ $product->default_unit }}" data-product-name="{{ $product->name }}" @selected((string) old('drum_product_id', $ro?->drum_product_id) === (string) $product->id)>
                                     {{ $product->name }}@if ($product->capacity_label) ({{ $product->capacity_label }}) @endif
                                 </option>
                             @endforeach
@@ -69,7 +79,7 @@
                             <select id="f-reconditioning_service_id" name="reconditioning_service_id" class="select @error('reconditioning_service_id') input-invalid @enderror" @required($isReconditioning) @disabled(! $isReconditioning)>
                                 <option value="">Pilih paket rekondisi</option>
                                 @foreach ($reconditioningServices as $service)
-                                    <option value="{{ $service->id }}" data-service-name="{{ $service->name }}" @selected((string) old('reconditioning_service_id') === (string) $service->id)>
+                                    <option value="{{ $service->id }}" data-service-name="{{ $service->name }}" @selected((string) old('reconditioning_service_id', $ro?->reconditioning_service_id) === (string) $service->id)>
                                         {{ $service->name }}
                                     </option>
                                 @endforeach
@@ -82,10 +92,10 @@
                     {{-- Baris 2: Kuantitas Estimasi * & Satuan * (Kiri) | Tanggal Penyerahan / Terima (Kanan) --}}
                     <div class="grid grid-cols-2 gap-3">
                         <x-ui.field label="Kuantitas Estimasi" name="requested_quantity" :error="$errors->first('requested_quantity')" required>
-                            <x-ui.input name="requested_quantity" type="number" min="1" :value="old('requested_quantity')" placeholder="50" :invalid="$errors->has('requested_quantity')" required />
+                            <x-ui.input name="requested_quantity" type="number" min="1" :value="old('requested_quantity', $ro?->requested_quantity)" placeholder="50" :invalid="$errors->has('requested_quantity')" required />
                         </x-ui.field>
                         <x-ui.field label="Satuan" name="requested_unit" :error="$errors->first('requested_unit')" required>
-                            <x-ui.input name="requested_unit" :value="old('requested_unit', 'Drum')" placeholder="Drum / Unit" :invalid="$errors->has('requested_unit')" data-unit-input required />
+                            <x-ui.input name="requested_unit" :value="old('requested_unit', $ro?->requested_unit ?? 'Drum')" placeholder="Drum / Unit" :invalid="$errors->has('requested_unit')" data-unit-input required />
                         </x-ui.field>
                     </div>
 
@@ -95,7 +105,7 @@
 
                     {{-- Baris 3: Jenis Limbah / Bekas Isi Kemasan (Opsional) (Kiri) | Jenis Pembayaran * + Kotak Detail VA & Salin (Kanan) --}}
                     <x-ui.field label="Jenis Limbah / Bekas Isi Kemasan (Opsional)" name="cargo_type" :error="$errors->first('cargo_type')">
-                        <x-ui.input name="cargo_type" :value="old('cargo_type')" placeholder="Contoh: Residu pelumas mesin, resin, atau bahan industri" :invalid="$errors->has('cargo_type')" />
+                        <x-ui.input name="cargo_type" :value="old('cargo_type', $ro?->cargo_type)" placeholder="Contoh: Residu pelumas mesin, resin, atau bahan industri" :invalid="$errors->has('cargo_type')" />
                     </x-ui.field>
 
                     <x-ui.field label="Jenis Pembayaran" name="payment_method" :error="$errors->first('payment_method')" required>
@@ -113,7 +123,7 @@
                                             data-provider="{{ $acc?->provider_name }}"
                                             data-instructions="{{ $acc?->instructions }}"
                                             @selected($selectedPaymentMethod === $method)>
-                                            {{ $method }}@if ($acc) — {{ $acc->account_number }} (a.n. {{ $acc->account_holder }})@endif
+                                            {{ $method }}@if ($acc) - {{ $acc->account_number }} (a.n. {{ $acc->account_holder }})@endif
                                         </option>
                                     @endforeach
                                 </optgroup>
@@ -383,7 +393,7 @@
                 }
 
                 if (!qty || qty < 1) {
-                    priceBreakdownEl.textContent = serviceName + ' · ' + productName + ' — masukkan kuantitas untuk hitung total.';
+                    priceBreakdownEl.textContent = serviceName + ' · ' + productName + ' - masukkan kuantitas untuk hitung total.';
                     totalPriceEl.textContent = 'Rp 0';
                     return;
                 }

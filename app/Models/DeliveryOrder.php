@@ -21,6 +21,7 @@ class DeliveryOrder extends Model
         'driver_name',
         'status',
         'notes',
+        'qr_hash',
         'pdf_path',
         'issued_by_user_id',
         'issued_at',

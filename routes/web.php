@@ -7,11 +7,15 @@ use App\Http\Controllers\Preview\ClientPreviewController;
 use App\Http\Controllers\Preview\FinancePreviewController;
 use App\Http\Controllers\Preview\OwnerPreviewController;
 use App\Http\Controllers\Preview\WarehousePreviewController;
+use App\Http\Controllers\PublicVerifyController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StatusHeartbeatController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect()->route('login'));
+
+// Endpoint Publik Verifikasi QR Code Dokumen Resmi PKDI (PRD v2.1 Bab 5.2)
+Route::get('/verify/{document_hash}', [PublicVerifyController::class, 'show'])->name('verify.document');
 
 Route::middleware('guest')->group(function (): void {
     Route::get('/captcha/challenge', [PuzzleCaptchaController::class, 'challenge'])->name('captcha.challenge');
@@ -32,6 +36,21 @@ Route::middleware(['auth', 'active.user'])->group(function (): void {
     // Unduhan dokumen PDF Invoice dengan otorisasi Policy (hanya pemilik Client, Keuangan, atau Owner)
     Route::get('/invoices/{code}/download-pdf', [ClientPreviewController::class, 'downloadInvoicePdf'])
         ->name('invoices.download-pdf');
+    Route::get('/invoices/{code}/bundle-zip', [ClientPreviewController::class, 'downloadInvoiceZipBundle'])
+        ->name('invoices.bundle-zip');
+    Route::get('/invoices/{code}/efaktur', [ClientPreviewController::class, 'downloadInvoiceEfaktur'])
+        ->name('invoices.efaktur.show');
+    Route::get('/invoices/{code}/pph23-proof', [ClientPreviewController::class, 'downloadInvoicePph23Proof'])
+        ->name('invoices.pph23.show');
+
+    // Unduhan Sertifikat Rekondisi PDF, Dokumen Kepatuhan & Foto Bukti Gate-In
+    Route::get('/orders/{code}/recondition-cert/pdf', [ClientPreviewController::class, 'downloadReconditionCertPdf'])
+        ->name('orders.recondition-cert.pdf');
+    Route::get('/compliance-docs/{doc}/download', [ClientPreviewController::class, 'downloadComplianceDoc'])
+        ->name('compliance-docs.download');
+    Route::get('/gate-logs/{gateLog}/evidence/{index}', [ClientPreviewController::class, 'downloadGateLogEvidence'])
+        ->whereNumber('index')
+        ->name('gate-logs.evidence.show');
 
     // Unduhan aman bukti transfer pembayaran yang dilindungi Policy Invoice
     Route::get('/payments/{payment}/proof', [ClientPreviewController::class, 'downloadPaymentProof'])
@@ -52,6 +71,9 @@ Route::middleware(['auth', 'active.user'])->group(function (): void {
         Route::get('/orders/create', [ClientPreviewController::class, 'ordersCreate'])->name('orders.create');
         Route::post('/orders', [ClientPreviewController::class, 'ordersStore'])->name('orders.store');
         Route::get('/orders/{code}', [ClientPreviewController::class, 'ordersShow'])->name('orders.show');
+        Route::post('/orders/{code}/reorder', [ClientPreviewController::class, 'reorder'])->name('orders.reorder');
+        Route::get('/discrepancies/{token}', [ClientPreviewController::class, 'discrepancyShow'])->name('discrepancies.show');
+        Route::post('/discrepancies/{report}/approve', [ClientPreviewController::class, 'discrepancyApprove'])->name('discrepancies.approve');
         Route::get('/invoices', [ClientPreviewController::class, 'invoicesIndex'])->name('invoices.index');
         Route::get('/invoices/{code}', [ClientPreviewController::class, 'invoicesShow'])->name('invoices.show');
         Route::post('/invoices/{code}/payments', [ClientPreviewController::class, 'submitPaymentProof'])->name('invoices.payments.store');
@@ -67,6 +89,11 @@ Route::middleware(['auth', 'active.user'])->group(function (): void {
         Route::get('/reports/export', [WarehousePreviewController::class, 'reportsExport'])->name('reports.export');
         Route::get('/orders/{code}', [WarehousePreviewController::class, 'orderShow'])->name('orders.show');
         Route::post('/orders/{code}/review', [WarehousePreviewController::class, 'reviewStore'])->name('orders.review');
+        Route::post('/orders/{code}/gate-in', [WarehousePreviewController::class, 'gateInStore'])->name('orders.gate-in.store');
+        Route::post('/orders/{code}/gate-out', [WarehousePreviewController::class, 'gateOutStore'])->name('orders.gate-out.store');
+        Route::post('/orders/{code}/compliance-docs', [WarehousePreviewController::class, 'complianceDocStore'])->name('orders.compliance-docs.store');
+        Route::post('/orders/{code}/recondition-cert', [WarehousePreviewController::class, 'reconditionCertStore'])->name('orders.recondition-cert.store');
+        Route::post('/orders/{code}/handover-finance', [WarehousePreviewController::class, 'handoverFinanceStore'])->name('orders.handover-finance');
         Route::post('/orders/{code}/transport', [WarehousePreviewController::class, 'transportStore'])->name('orders.transport.store');
         Route::post('/orders/{code}/receipt', [WarehousePreviewController::class, 'receiptStore'])->name('orders.receipt.store');
         Route::post('/orders/{code}/sorting', [WarehousePreviewController::class, 'sortingStore'])->name('orders.sorting.store');
@@ -90,7 +117,12 @@ Route::middleware(['auth', 'active.user'])->group(function (): void {
         Route::post('/invoices/{code}/publish', [FinancePreviewController::class, 'invoicesPublish'])->name('invoices.publish');
         Route::put('/invoices/{code}/revise', [FinancePreviewController::class, 'invoicesRevise'])->name('invoices.revise');
         Route::post('/invoices/{code}/void', [FinancePreviewController::class, 'invoicesVoid'])->name('invoices.void');
+        Route::post('/invoices/{code}/efaktur', [FinancePreviewController::class, 'efakturStore'])->name('invoices.efaktur.store');
         Route::post('/invoices/{code}/payments', [FinancePreviewController::class, 'paymentsStore'])->name('invoices.payments.store');
+        Route::post('/orders/{code}/split-billing', [FinancePreviewController::class, 'splitBillingStore'])->name('orders.split-billing.store');
+        Route::get('/contracts', [FinancePreviewController::class, 'contractsIndex'])->name('contracts.index');
+        Route::post('/contracts', [FinancePreviewController::class, 'contractsStore'])->name('contracts.store');
+        Route::delete('/contracts/{contract}', [FinancePreviewController::class, 'contractsDestroy'])->name('contracts.destroy');
         Route::get('/tariffs', [FinancePreviewController::class, 'tariffsIndex'])->name('tariffs.index');
         Route::post('/tariffs', [FinancePreviewController::class, 'tariffsStore'])->name('tariffs.store');
         Route::put('/tariffs/{tariff}', [FinancePreviewController::class, 'tariffsUpdate'])->name('tariffs.update');
@@ -112,6 +144,8 @@ Route::middleware(['auth', 'active.user'])->group(function (): void {
         Route::get('/reports/export', [OwnerPreviewController::class, 'reportsExport'])->name('reports.export');
         Route::get('/transactions', [OwnerPreviewController::class, 'transactionsIndex'])->name('transactions.index');
         Route::get('/transactions/{code}', [OwnerPreviewController::class, 'transactionsShow'])->name('transactions.show');
+        Route::post('/transactions/{code}/override', [OwnerPreviewController::class, 'overrideStore'])->name('transactions.override');
+        Route::post('/transactions/{code}/split-billing', [OwnerPreviewController::class, 'splitBillingStore'])->name('transactions.split-billing');
         Route::get('/audit-logs', [OwnerPreviewController::class, 'auditLogs'])->name('audit-logs');
     });
 });

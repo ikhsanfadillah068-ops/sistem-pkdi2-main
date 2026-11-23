@@ -78,7 +78,16 @@
                                         <p class="mt-1 text-[11px] text-muted-foreground tabular-nums">Tahap {{ $stepNum }}/{{ $totalSteps }}</p>
                                     </td>
                                     <td class="py-3 align-middle text-right whitespace-nowrap">
-                                        <a href="{{ route('client.orders.show', \App\Support\PkdiDemoData::orderSlug($order['order_number'])) }}" class="btn btn-outline btn-sm min-h-11 px-3 text-xs sm:min-h-8">Lihat Detail</a>
+                                        <div class="inline-flex items-center gap-1.5">
+                                            <form action="{{ route('client.orders.reorder', \App\Support\PkdiDemoData::orderSlug($order['order_number'])) }}" method="POST" class="inline" data-prevent-double-submit>
+                                                @csrf
+                                                <button type="submit" class="btn btn-outline btn-sm min-h-11 px-2.5 text-xs sm:min-h-8" title="Pesan Ulang (1-Click Re-Order)">
+                                                    <x-ui.icon name="refresh" class="h-3.5 w-3.5" />
+                                                    Pesan Ulang
+                                                </button>
+                                            </form>
+                                            <a href="{{ route('client.orders.show', \App\Support\PkdiDemoData::orderSlug($order['order_number'])) }}" class="btn btn-outline btn-sm min-h-11 px-3 text-xs sm:min-h-8">Lihat Detail</a>
+                                        </div>
                                     </td>
                                 </tr>
                             @endforeach
