@@ -52,4 +52,32 @@
             </form>
         </x-ui.card>
     </div>
+
+    @if (($role ?? '') === 'client' && isset($company) && $company)
+        <x-ui.card title="Alamat & Titik Lokasi Pabrik Perusahaan" description="Alamat ini digunakan secara otomatis sebagai lokasi penjemputan pesanan baru Anda.">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div class="space-y-1.5 text-sm">
+                    <p class="font-semibold text-foreground">{{ $company->company_name }}</p>
+                    <p class="text-muted-foreground leading-relaxed">{{ $company->address ?: 'Alamat perusahaan belum dilengkapi.' }}</p>
+                    @if ($company->latitude !== null && $company->longitude !== null)
+                        <p class="text-xs text-muted-foreground font-mono tabular-nums">
+                            Koordinat: {{ number_format((float) $company->latitude, 6, '.', '') }}, {{ number_format((float) $company->longitude, 6, '.', '') }}
+                        </p>
+                    @endif
+                </div>
+                <div class="flex flex-wrap gap-2 shrink-0">
+                    @if ($company->resolvedGoogleMapsUrl())
+                        <a href="{{ $company->resolvedGoogleMapsUrl() }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                            <x-ui.icon name="map-pin" class="h-3.5 w-3.5" />
+                            Lihat Titik Lokasi
+                        </a>
+                    @endif
+                    <a href="{{ route('client.company') }}" class="btn btn-primary btn-sm">
+                        <x-ui.icon name="edit" class="h-3.5 w-3.5" />
+                        Ubah Lokasi & Peta Pabrik
+                    </a>
+                </div>
+            </div>
+        </x-ui.card>
+    @endif
 </x-layouts.admin>

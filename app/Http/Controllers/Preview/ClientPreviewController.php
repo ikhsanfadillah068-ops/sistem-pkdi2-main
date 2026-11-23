@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\ReconditioningService;
 use App\Models\ServiceOrder;
+use App\Models\ServiceTariff;
 use App\Models\User;
 use App\Services\BillingAndExitWorkflowService;
 use App\Services\OrderWorkflowService;
@@ -52,10 +53,15 @@ class ClientPreviewController extends Controller
 
         return view('client.orders.create', [
             'companyName' => $request->user()?->companyDisplay() ?? 'PT Maju Jaya Kimia',
+            'clientCompany' => $request->user()?->clientCompany,
             'drumProducts' => DrumProduct::query()->active()->get(),
             'reconditioningServices' => ReconditioningService::query()->active()->get(),
             'paymentMethodGroups' => config('pkdi.payment_methods', []),
             'paymentAccounts' => CompanyPaymentAccount::query()->active()->get(),
+            'tariffs' => ServiceTariff::query()
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->get(['id', 'tariff_code', 'name', 'service_category', 'service_type', 'unit', 'unit_price']),
         ]);
     }
 
@@ -164,6 +170,10 @@ class ClientPreviewController extends Controller
             'invoice' => OrderPresenter::invoiceToArray($dbInvoice),
             'paymentMethodGroups' => config('pkdi.payment_methods', []),
             'paymentAccounts' => CompanyPaymentAccount::query()->active()->get(),
+            'tariffs' => ServiceTariff::query()
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->get(['id', 'tariff_code', 'name', 'service_category', 'service_type', 'unit', 'unit_price']),
         ]);
     }
 
@@ -301,6 +311,9 @@ class ClientPreviewController extends Controller
             'phone' => ['required', 'string', 'min:8', 'max:30'],
             'email' => ['required', 'string', 'email:filter', 'max:150'],
             'address' => ['required', 'string', 'min:10', 'max:1000'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            'google_maps_url' => ['nullable', 'string', 'max:255'],
             'npwp' => ['nullable', 'string', 'max:50'],
             'nib_number' => ['nullable', 'string', 'max:60'],
             'nib_file' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
@@ -319,7 +332,7 @@ class ClientPreviewController extends Controller
             'nib_file.max' => 'Ukuran dokumen NIB maksimal 5 MB.',
         ]);
 
-        $oldValues = $company->only(['company_name', 'pic_name', 'phone', 'email', 'address', 'npwp', 'nib_number', 'documents_status']);
+        $oldValues = $company->only(['company_name', 'pic_name', 'phone', 'email', 'address', 'latitude', 'longitude', 'google_maps_url', 'npwp', 'nib_number', 'documents_status']);
 
         $nibFilePath = $company->nib_file_path;
         if ($request->hasFile('nib_file')) {
@@ -330,12 +343,24 @@ class ClientPreviewController extends Controller
         $nibNumber = isset($validated['nib_number']) && trim((string) $validated['nib_number']) !== '' ? trim((string) $validated['nib_number']) : null;
         $documentsStatus = ($npwp !== null && ($nibNumber !== null || $nibFilePath !== null)) ? 'COMPLETE' : 'INCOMPLETE';
 
+        $address = trim($validated['address']);
+        $latitude = array_key_exists('latitude', $validated)
+            ? ($validated['latitude'] !== null && $validated['latitude'] !== '' ? (float) $validated['latitude'] : null)
+            : $company->latitude;
+        $longitude = array_key_exists('longitude', $validated)
+            ? ($validated['longitude'] !== null && $validated['longitude'] !== '' ? (float) $validated['longitude'] : null)
+            : $company->longitude;
+        $googleMapsUrl = ClientCompany::buildGoogleMapsUrl($latitude, $longitude, $address);
+
         $company->update([
             'company_name' => trim($validated['company_name']),
             'pic_name' => trim($validated['pic_name']),
             'phone' => trim($validated['phone']),
             'email' => strtolower(trim($validated['email'])),
-            'address' => trim($validated['address']),
+            'address' => $address,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'google_maps_url' => $googleMapsUrl,
             'npwp' => $npwp,
             'nib_number' => $nibNumber,
             'nib_file_path' => $nibFilePath,
@@ -346,7 +371,7 @@ class ClientPreviewController extends Controller
             action: 'CLIENT_COMPANY_UPDATED',
             auditable: $company,
             oldValues: $oldValues,
-            newValues: $company->only(['company_name', 'pic_name', 'phone', 'email', 'address', 'npwp', 'nib_number', 'documents_status']),
+            newValues: $company->only(['company_name', 'pic_name', 'phone', 'email', 'address', 'latitude', 'longitude', 'google_maps_url', 'npwp', 'nib_number', 'documents_status']),
             actor: $user,
             request: $request,
         );

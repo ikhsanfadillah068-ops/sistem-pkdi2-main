@@ -60,7 +60,10 @@
                                 <p class="font-semibold tabular-nums">{{ $order['order_number'] }}</p>
                                 <p class="text-xs text-muted-foreground">{{ $order['submitted_at'] }}</p>
                             </td>
-                            <td>{{ $order['client_company'] }}</td>
+                            <td>
+                                <p class="font-medium">{{ $order['client_company'] }}</p>
+                                <p class="mt-0.5 max-w-xs truncate text-xs text-muted-foreground" title="{{ $order['company_address'] ?? '-' }}">{{ $order['company_address'] ?? '-' }}</p>
+                            </td>
                             <td>
                                 <p class="font-medium">{{ $order['product_name'] }} · {{ $order['service_type'] }}</p>
                                 <p class="text-xs text-muted-foreground">{{ $order['transaction_type_label'] }} ({{ $order['requested_qty'] }} {{ $order['unit'] }})</p>

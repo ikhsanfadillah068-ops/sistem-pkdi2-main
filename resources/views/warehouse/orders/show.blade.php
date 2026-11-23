@@ -36,8 +36,16 @@
                 <x-ui.badge :variant="$st['tone']" :dot="true">{{ $st['label'] }}</x-ui.badge>
                 <x-ui.badge variant="outline">{{ $order['transaction_type_label'] }}</x-ui.badge>
             </div>
-            <p class="mt-1 text-sm text-muted-foreground">{{ $order['client_company'] }} · Diajukan {{ $order['submitted_at'] }}</p>
+            <p class="mt-1 text-sm text-muted-foreground">{{ $order['client_company'] }} · Diajukan {{ $order['submitted_at'] }}@if (!empty($order['po_number'])) · PO: {{ $order['po_number'] }}@endif</p>
         </div>
+        @if (!empty($order['google_maps_url']))
+            <div class="flex flex-wrap gap-2">
+                <a href="{{ $order['google_maps_url'] }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                    <x-ui.icon name="map-pin" class="h-4 w-4 text-brand-accent" />
+                    Buka Rute di Google Maps
+                </a>
+            </div>
+        @endif
     </div>
 
     {{-- TRACKER OPERASIONAL INTERNAL GUDANG --}}
@@ -103,23 +111,42 @@
                         <dd class="mt-1 font-semibold tabular-nums">{{ $order['requested_qty'] }} {{ $order['unit'] }}</dd>
                     </div>
                     <div>
-                        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Nomor & Tanggal PO</dt>
-                        <dd class="mt-1 font-medium tabular-nums">{{ $order['po_number'] ?? '-' }}@if (!empty($order['po_date'])) · {{ $order['po_date'] }}@endif</dd>
+                        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tanggal & Jam Pemesanan</dt>
+                        <dd class="mt-1 font-medium tabular-nums">{{ $order['submitted_at'] ?? '-' }}</dd>
                     </div>
                     <div>
                         <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tanggal Penyerahan / Terima</dt>
                         <dd class="mt-1 font-medium tabular-nums">{{ $order['needed_date'] ?? '-' }}</dd>
                     </div>
                     <div>
+                        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Jenis Limbah / Muatan</dt>
+                        <dd class="mt-1 font-medium">{{ $order['cargo_type'] ?? '-' }}</dd>
+                    </div>
+                    <div>
                         <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Jenis Pembayaran</dt>
                         <dd class="mt-1 font-medium">{{ $order['payment_method_display'] ?? ($order['payment_method'] ?: 'Belum dipilih') }}</dd>
                     </div>
+                    <div class="sm:col-span-2 rounded-lg border bg-muted/20 p-3.5">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <dt class="text-xs font-semibold uppercase tracking-wide text-foreground inline-flex items-center gap-1.5">
+                                <x-ui.icon name="map-pin" class="h-4 w-4 text-brand-accent" />
+                                Alamat Lengkap Perusahaan / Lokasi Penjemputan
+                            </dt>
+                            @if (!empty($order['google_maps_url']))
+                                <a href="{{ $order['google_maps_url'] }}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">
+                                    <x-ui.icon name="navigation" class="h-3.5 w-3.5" />
+                                    Buka Rute di Google Maps
+                                </a>
+                            @endif
+                        </div>
+                        <dd class="mt-1.5 text-sm leading-relaxed text-foreground">{{ $order['company_address'] ?? '-' }}</dd>
+                    </div>
                     <div class="sm:col-span-2">
-                        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Spesifikasi & Catatan Client</dt>
+                        <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Catatan Tambahan, Warna & Penanganan</dt>
                         <dd class="mt-1 text-sm leading-relaxed text-foreground">
                             {{ $order['specification_notes'] ?: ($order['client_notes'] ?: 'Tidak ada catatan tambahan dari Client.') }}
                             @if (!empty($order['specification_notes']) && !empty($order['client_notes']))
-                                <span class="mt-1 block text-muted-foreground">Catatan lokasi/tambahan: {{ $order['client_notes'] }}</span>
+                                <span class="mt-1 block text-muted-foreground">Catatan tambahan: {{ $order['client_notes'] }}</span>
                             @endif
                         </dd>
                     </div>

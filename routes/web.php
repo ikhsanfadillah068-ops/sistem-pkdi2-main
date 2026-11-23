@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use App\Http\Controllers\Auth\PuzzleCaptchaController;
 use App\Http\Controllers\Auth\RegisteredClientController;
 use App\Http\Controllers\Preview\ClientPreviewController;
 use App\Http\Controllers\Preview\FinancePreviewController;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', fn () => redirect()->route('login'));
 
 Route::middleware('guest')->group(function (): void {
+    Route::get('/captcha/challenge', [PuzzleCaptchaController::class, 'challenge'])->name('captcha.challenge');
+    Route::post('/captcha/verify', [PuzzleCaptchaController::class, 'verify'])->name('captcha.verify');
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
     Route::post('/login', [AuthenticatedSessionController::class, 'store'])->name('login.store');
     Route::get('/register', [RegisteredClientController::class, 'create'])->name('register');

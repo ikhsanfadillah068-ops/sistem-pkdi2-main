@@ -70,6 +70,10 @@ class OrderWorkflowService
         $originCompany = isset($validated['origin_company_name']) && trim((string) $validated['origin_company_name']) !== ''
             ? trim((string) $validated['origin_company_name'])
             : ($client->clientCompany?->company_name ?? $client->companyDisplay());
+        $pickupAddress = $client->clientCompany?->address;
+        $pickupLatitude = $client->clientCompany?->latitude;
+        $pickupLongitude = $client->clientCompany?->longitude;
+        $pickupGoogleMapsUrl = $client->clientCompany?->resolvedGoogleMapsUrl();
 
         $licensePlate = isset($validated['license_plate']) && trim((string) $validated['license_plate']) !== ''
             ? strtoupper(preg_replace('/\s+/', ' ', trim((string) $validated['license_plate'])) ?? '')
@@ -140,6 +144,10 @@ class OrderWorkflowService
             $neededDate,
             $paymentMethod,
             $originCompany,
+            $pickupAddress,
+            $pickupLatitude,
+            $pickupLongitude,
+            $pickupGoogleMapsUrl,
             $vehicleType,
             $licensePlate,
             $driverName,
@@ -168,6 +176,10 @@ class OrderWorkflowService
                 'po_attachment_path' => $poAttachmentPath,
                 'needed_date' => $neededDate,
                 'origin_company_name' => $originCompany,
+                'pickup_address' => $pickupAddress,
+                'pickup_latitude' => $pickupLatitude,
+                'pickup_longitude' => $pickupLongitude,
+                'pickup_google_maps_url' => $pickupGoogleMapsUrl,
                 'vehicle_type' => $vehicleType,
                 'license_plate' => $licensePlate,
                 'driver_name' => $driverName,
@@ -208,6 +220,8 @@ class OrderWorkflowService
                     'warehouse_status' => $order->warehouse_status,
                     'billing_status' => $order->billing_status,
                     'po_number' => $poNumber,
+                    'company_address' => $pickupAddress,
+                    'google_maps_url' => $pickupGoogleMapsUrl,
                     'summary' => $historyNote,
                 ],
                 actor: $client,

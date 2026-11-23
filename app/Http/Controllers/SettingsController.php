@@ -21,6 +21,7 @@ class SettingsController extends Controller
 
         return view('settings.edit', [
             'user' => $user,
+            'company' => $user->clientCompany,
             'role' => $user->role,
             'roleMeta' => $user->toRoleMeta(),
         ]);

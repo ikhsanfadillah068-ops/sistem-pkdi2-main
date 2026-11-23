@@ -25,16 +25,16 @@
 
     <div class="grid gap-6 lg:grid-cols-2">
         <div class="space-y-6">
-            <x-ui.detail-list title="Informasi Administrasi & Rincian Pesanan" description="Data pesanan dari Client untuk kelengkapan penagihan dan verifikasi pembayaran." :items="[
+            <x-ui.detail-list title="Informasi Administrasi & Rincian Pesanan" description="Data pesanan dan alamat perusahaan Client untuk kelengkapan penagihan dan verifikasi pembayaran." :items="[
+                ['label' => 'Kode Pesanan', 'value' => $order['order_number']],
+                ['label' => 'Tanggal & Jam Pemesanan', 'value' => $order['submitted_at'] ?: '-'],
                 ['label' => 'Perusahaan Pemohon (PT / CV)', 'value' => $order['origin_company'] ?: $order['client_company']],
+                ['label' => 'Alamat Perusahaan', 'value' => $order['company_address'] ?? '-'],
                 ['label' => 'Rincian Kemasan & Paket Layanan', 'value' => $order['product_name'].' · '.$order['service_type'].' ('.$order['requested_qty'].' '.$order['unit'].')'],
-                ['label' => 'Nomor Purchase Order (PO)', 'value' => $order['po_number'] ?: '-'],
-                ['label' => 'Tanggal PO', 'value' => $order['po_date'] ?: '-'],
                 ['label' => 'Tanggal Penyerahan / Terima', 'value' => $order['needed_date'] ?: '-'],
                 ['label' => 'Jenis Pembayaran', 'value' => $order['payment_method_display'] ?? ($order['payment_method'] ?: 'Belum dipilih')],
                 ['label' => 'Jenis Limbah / Bekas Isi Kemasan', 'value' => $order['cargo_type'] ?: '-'],
-                ['label' => 'Spesifikasi & Permintaan Penanganan', 'value' => $order['specification_notes'] ?: '-'],
-                ['label' => 'Catatan Lokasi Penjemputan / Tambahan', 'value' => $order['client_notes'] ?: '-'],
+                ['label' => 'Catatan Tambahan, Warna & Penanganan', 'value' => $order['specification_notes'] ?: ($order['client_notes'] ?: '-')],
             ]" />
 
             <x-ui.detail-list title="Hasil Pekerjaan Aktual Kepala Gudang" description="Menjadi dasar resmi perhitungan kuantitas yang ditagihkan." :items="[

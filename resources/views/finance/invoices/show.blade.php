@@ -219,28 +219,38 @@
                         <dt class="text-xs text-muted-foreground">Perusahaan Pemohon (PT / CV)</dt>
                         <dd class="mt-0.5 font-medium">{{ $inv['origin_company'] ?? $inv['client_company'] }}</dd>
                     </div>
+                    <div>
+                        <dt class="text-xs text-muted-foreground">Alamat Perusahaan</dt>
+                        <dd class="mt-0.5 text-xs leading-relaxed text-foreground">{{ $inv['company_address'] ?? '-' }}</dd>
+                        @if (!empty($inv['google_maps_url']))
+                            <a href="{{ $inv['google_maps_url'] }}" target="_blank" rel="noopener" class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-brand-accent hover:underline">
+                                <x-ui.icon name="map-pin" class="h-3 w-3" />
+                                Lihat Lokasi di Google Maps
+                            </a>
+                        @endif
+                    </div>
                     @if (!empty($inv['client_npwp']))
                         <div>
                             <dt class="text-xs text-muted-foreground">NPWP Client</dt>
                             <dd class="mt-0.5 tabular-nums">{{ $inv['client_npwp'] }}</dd>
                         </div>
                     @endif
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <dt class="text-xs text-muted-foreground">Kode Pesanan</dt>
+                            <dd class="mt-0.5 font-medium tabular-nums">{{ implode(', ', $inv['order_numbers']) ?: '-' }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs text-muted-foreground">Waktu Pemesanan</dt>
+                            <dd class="mt-0.5 text-xs font-medium tabular-nums">{{ $inv['order_submitted_at'] ?? '-' }}</dd>
+                        </div>
+                    </div>
                     @if (!empty($inv['package_summary']))
                         <div>
                             <dt class="text-xs text-muted-foreground">Rincian Kemasan & Paket Layanan</dt>
                             <dd class="mt-0.5 font-medium">{{ $inv['package_summary'] }}</dd>
                         </div>
                     @endif
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <dt class="text-xs text-muted-foreground">Nomor PO</dt>
-                            <dd class="mt-0.5 font-medium tabular-nums">{{ $inv['po_number'] ?? '-' }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-xs text-muted-foreground">Tanggal PO</dt>
-                            <dd class="mt-0.5 font-medium tabular-nums">{{ $inv['po_date'] ?? '-' }}</dd>
-                        </div>
-                    </div>
                     <div>
                         <dt class="text-xs text-muted-foreground">Tanggal Penyerahan / Terima</dt>
                         <dd class="mt-0.5 font-medium tabular-nums">{{ $inv['needed_date'] ?? '-' }}</dd>
@@ -251,18 +261,10 @@
                     </div>
                     @if (!empty($inv['specification_notes']) || !empty($inv['client_notes']))
                         <div class="border-t pt-3 space-y-2">
-                            @if (!empty($inv['specification_notes']))
-                                <div>
-                                    <dt class="text-xs text-muted-foreground">Spesifikasi & Permintaan Penanganan</dt>
-                                    <dd class="mt-0.5 text-xs text-foreground">{{ $inv['specification_notes'] }}</dd>
-                                </div>
-                            @endif
-                            @if (!empty($inv['client_notes']))
-                                <div>
-                                    <dt class="text-xs text-muted-foreground">Catatan Lokasi Penjemputan / Tambahan</dt>
-                                    <dd class="mt-0.5 text-xs text-foreground">{{ $inv['client_notes'] }}</dd>
-                                </div>
-                            @endif
+                            <div>
+                                <dt class="text-xs text-muted-foreground">Catatan Tambahan, Warna & Penanganan</dt>
+                                <dd class="mt-0.5 text-xs text-foreground">{{ $inv['specification_notes'] ?: $inv['client_notes'] }}</dd>
+                            </div>
                         </div>
                     @endif
                     <div class="border-t pt-3">

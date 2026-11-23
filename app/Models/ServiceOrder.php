@@ -45,6 +45,10 @@ class ServiceOrder extends Model
         'needed_date',
         'scheduled_pickup_date',
         'origin_company_name',
+        'pickup_address',
+        'pickup_latitude',
+        'pickup_longitude',
+        'pickup_google_maps_url',
         'transporter_name',
         'vehicle_type',
         'license_plate',
@@ -76,6 +80,8 @@ class ServiceOrder extends Model
         return [
             'requested_quantity' => 'integer',
             'delivered_quantity' => 'integer',
+            'pickup_latitude' => 'float',
+            'pickup_longitude' => 'float',
             'po_date' => 'date',
             'needed_date' => 'date',
             'scheduled_pickup_date' => 'date',
@@ -105,6 +111,36 @@ class ServiceOrder extends Model
     public function transactionTypeLabel(): string
     {
         return $this->isWasteTransport() ? 'Pengangkutan Limbah' : 'Rekondisi Drum';
+    }
+
+    public function resolvedAddress(): string
+    {
+        if (filled($this->pickup_address)) {
+            return (string) $this->pickup_address;
+        }
+
+        if (filled($this->clientCompany?->address)) {
+            return (string) $this->clientCompany->address;
+        }
+
+        return '-';
+    }
+
+    public function resolvedGoogleMapsUrl(): ?string
+    {
+        if (filled($this->pickup_google_maps_url)) {
+            return (string) $this->pickup_google_maps_url;
+        }
+
+        if ($this->pickup_latitude !== null && $this->pickup_longitude !== null) {
+            return ClientCompany::buildGoogleMapsUrl($this->pickup_latitude, $this->pickup_longitude, $this->pickup_address);
+        }
+
+        if ($this->clientCompany) {
+            return $this->clientCompany->resolvedGoogleMapsUrl();
+        }
+
+        return ClientCompany::buildGoogleMapsUrl(null, null, $this->resolvedAddress());
     }
 
     public function scopeVisibleTo(Builder $query, User $user): Builder

@@ -392,11 +392,15 @@ class ReportExportService
         $ops[] = $this->pdfTextRight(545, 761, 'Status: '.$statusLabel, 'F2', 8.5, '0.98 0.90 0.92');
 
         // Client & Invoice Info Two-Column Box
+        $primaryOrder = $invoice->serviceOrder ?? $invoice->billableTransactions->first()?->serviceOrder;
+        $clientAddress = $primaryOrder?->resolvedAddress() ?? ($invoice->clientCompany?->address ?? '-');
+
         $ops[] = $this->pdfRect(36, 650, 255, 82, '0.976 0.976 0.980', '0.86 0.86 0.89', 0.6);
-        $ops[] = $this->pdfText(48, 716, 'DITAGIHKAN KEPADA (CLIENT)', 'F2', 7.5, '0.42 0.42 0.47');
-        $ops[] = $this->pdfText(48, 700, (string) ($invoice->clientCompany?->company_name ?? '-'), 'F2', 10, '0.09 0.09 0.11');
-        $ops[] = $this->pdfText(48, 684, mb_strimwidth('PIC: '.($invoice->clientCompany?->pic_name ?? '-').$npwpText, 0, 44, '...'), 'F1', 8, '0.30 0.30 0.35');
-        $ops[] = $this->pdfText(48, 666, mb_strimwidth($refLabel, 0, 46, '...'), 'F2', 7.8, '0.20 0.20 0.25');
+        $ops[] = $this->pdfText(48, 718, 'DITAGIHKAN KEPADA (CLIENT)', 'F2', 7.5, '0.42 0.42 0.47');
+        $ops[] = $this->pdfText(48, 703, mb_strimwidth((string) ($invoice->clientCompany?->company_name ?? '-'), 0, 42, '...'), 'F2', 9.5, '0.09 0.09 0.11');
+        $ops[] = $this->pdfText(48, 690, mb_strimwidth('Alamat: '.$clientAddress, 0, 48, '...'), 'F1', 7.5, '0.25 0.25 0.30');
+        $ops[] = $this->pdfText(48, 677, mb_strimwidth('PIC: '.($invoice->clientCompany?->pic_name ?? '-').$npwpText, 0, 46, '...'), 'F1', 7.5, '0.30 0.30 0.35');
+        $ops[] = $this->pdfText(48, 662, mb_strimwidth($refLabel, 0, 46, '...'), 'F2', 7.6, '0.20 0.20 0.25');
 
         $ops[] = $this->pdfRect(304, 650, 255, 82, '0.976 0.976 0.980', '0.86 0.86 0.89', 0.6);
         $ops[] = $this->pdfText(316, 716, 'INFORMASI DOKUMEN TAGIHAN', 'F2', 7.5, '0.42 0.42 0.47');

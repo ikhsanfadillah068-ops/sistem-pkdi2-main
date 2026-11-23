@@ -35,9 +35,26 @@
                     </x-ui.field>
                 </div>
 
-                <x-ui.field label="Alamat Lengkap Perusahaan" name="address" :error="$errors->first('address')" required>
-                    <x-ui.textarea name="address" rows="2" minlength="10" placeholder="Alamat pabrik atau kantor perusahaan" :invalid="$errors->has('address')" required>{{ old('address') }}</x-ui.textarea>
-                </x-ui.field>
+                <div class="space-y-3">
+                    <x-ui.location-picker
+                        id="register-company-map"
+                        targetSelector="textarea[name='address']"
+                        :latitude="old('latitude')"
+                        :longitude="old('longitude')"
+                        :googleMapsUrl="old('google_maps_url')"
+                        height="220px"
+                        :lightMode="true"
+                    />
+
+                    <x-ui.field
+                        label="Alamat Lengkap Perusahaan"
+                        name="address"
+                        help="Terisi otomatis saat memilih titik di peta. Anda tetap dapat mengedit detail blok pabrik, nomor kavling, atau patokan gerbang."
+                        :error="$errors->first('address')"
+                        required>
+                        <x-ui.textarea name="address" rows="2" minlength="10" placeholder="Alamat pabrik atau kantor perusahaan (klik peta di atas untuk isi otomatis)" :invalid="$errors->has('address')" required>{{ old('address') }}</x-ui.textarea>
+                    </x-ui.field>
+                </div>
 
                 <x-ui.field label="Email Login" name="email" :error="$errors->first('email')" required>
                     <x-ui.input name="email" type="email" :value="old('email')" placeholder="pic@perusahaan.co.id" autocomplete="email" :invalid="$errors->has('email')" required />
@@ -50,6 +67,10 @@
                     <x-ui.field label="Konfirmasi Kata Sandi" name="password_confirmation" required>
                         <x-ui.input name="password_confirmation" type="password" minlength="8" autocomplete="new-password" data-match="password" :invalid="$errors->has('password')" required />
                     </x-ui.field>
+                </div>
+
+                <div class="pt-1">
+                    <x-ui.puzzle-captcha id="register-puzzle-captcha" />
                 </div>
 
                 <div class="flex flex-col-reverse gap-3 border-t border-zinc-200 pt-4 sm:flex-row sm:items-center sm:justify-between">

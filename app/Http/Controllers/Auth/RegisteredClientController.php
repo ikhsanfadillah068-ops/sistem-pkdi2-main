@@ -29,6 +29,9 @@ class RegisteredClientController extends Controller
             'pic_name' => ['required', 'string', 'min:2', 'max:150'],
             'phone' => ['required', 'string', 'min:8', 'max:30'],
             'address' => ['required', 'string', 'min:10', 'max:1000'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            'google_maps_url' => ['nullable', 'string', 'max:255'],
             'npwp' => ['nullable', 'string', 'max:50'],
             'email' => ['required', 'string', 'email:filter', 'max:150', 'unique:users,email'],
             'password' => ['required', 'confirmed', Password::min(8)],
@@ -49,13 +52,18 @@ class RegisteredClientController extends Controller
             'password.min' => 'Password minimal 8 karakter.',
         ]);
 
+        PuzzleCaptchaController::assertVerified($request);
+
         $email = Str::lower(trim($validated['email']));
         $companyName = trim($validated['company_name']);
         $picName = trim($validated['pic_name']);
         $phone = trim($validated['phone']);
         $address = trim($validated['address']);
+        $latitude = isset($validated['latitude']) && $validated['latitude'] !== '' ? (float) $validated['latitude'] : null;
+        $longitude = isset($validated['longitude']) && $validated['longitude'] !== '' ? (float) $validated['longitude'] : null;
+        $googleMapsUrl = ClientCompany::buildGoogleMapsUrl($latitude, $longitude, $address);
 
-        $user = DB::transaction(function () use ($request, $validated, $email, $companyName, $picName, $phone, $address): User {
+        $user = DB::transaction(function () use ($request, $validated, $email, $companyName, $picName, $phone, $address, $latitude, $longitude, $googleMapsUrl): User {
             $nextNumber = ClientCompany::query()->count() + 1;
             $companyCode = sprintf('CLI-%s-%04d', now()->format('ym'), $nextNumber);
 
@@ -71,6 +79,9 @@ class RegisteredClientController extends Controller
                 'email' => $email,
                 'phone' => $phone,
                 'address' => $address,
+                'latitude' => $latitude,
+                'longitude' => $longitude,
+                'google_maps_url' => $googleMapsUrl,
                 'npwp' => isset($validated['npwp']) ? trim($validated['npwp']) : null,
                 'verification_status' => 'ACTIVE',
             ]);
@@ -96,6 +107,10 @@ class RegisteredClientController extends Controller
                 newValues: [
                     'company_code' => $company->company_code,
                     'company_name' => $company->company_name,
+                    'company_address' => $company->address,
+                    'latitude' => $company->latitude,
+                    'longitude' => $company->longitude,
+                    'google_maps_url' => $company->google_maps_url,
                     'email' => $newUser->email,
                     'role' => $newUser->role,
                 ],

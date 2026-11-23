@@ -119,6 +119,10 @@ class OrderPresenter
             'reconditioning_service_name' => $order->reconditioningService?->name ?? ($order->isReconditioning() ? ($order->service_type ?? '-') : null),
             'client_company' => $order->clientCompany?->company_name ?? $order->origin_company_name,
             'origin_company' => $order->origin_company_name,
+            'company_address' => $order->resolvedAddress(),
+            'pickup_latitude' => $order->pickup_latitude ?? $order->clientCompany?->latitude,
+            'pickup_longitude' => $order->pickup_longitude ?? $order->clientCompany?->longitude,
+            'google_maps_url' => $order->resolvedGoogleMapsUrl(),
             'service_category' => $order->drumProduct?->name ?? $order->service_category ?? '-',
             'cargo_type' => $order->cargo_type ?? '-',
             'service_type' => $order->isWasteTransport()
@@ -374,6 +378,9 @@ class OrderPresenter
             'client_company_id' => $invoice->client_company_id,
             'client_company' => $invoice->clientCompany?->company_name ?? ($primaryOrder?->origin_company_name ?? '-'),
             'origin_company' => $primaryOrder?->origin_company_name ?? ($invoice->clientCompany?->company_name ?? '-'),
+            'company_address' => $primaryOrder?->resolvedAddress() ?? ($invoice->clientCompany?->address ?: '-'),
+            'google_maps_url' => $primaryOrder?->resolvedGoogleMapsUrl() ?? $invoice->clientCompany?->resolvedGoogleMapsUrl(),
+            'order_submitted_at' => $primaryOrder?->submitted_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
             'client_npwp' => $invoice->clientCompany?->npwp,
             'client_nib' => $invoice->clientCompany?->nib_number,
             'primary_order_number' => $orderNumbers[0] ?? ($primaryOrder?->order_number ?? '-'),
@@ -528,8 +535,12 @@ class OrderPresenter
                 'service_order_id' => $tx->service_order_id,
                 'order_number' => $tx->serviceOrder?->order_number ?? '-',
                 'order_slug' => $tx->serviceOrder?->order_slug ?? '',
+                'order_submitted_at' => $tx->serviceOrder?->submitted_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
                 'client_company_id' => $tx->client_company_id,
                 'client_company' => $tx->clientCompany?->company_name ?? '-',
+                'company_address' => $tx->serviceOrder?->resolvedAddress() ?? ($tx->clientCompany?->address ?: '-'),
+                'google_maps_url' => $tx->serviceOrder?->resolvedGoogleMapsUrl() ?? $tx->clientCompany?->resolvedGoogleMapsUrl(),
+                'payment_method_display' => self::formatPaymentMethodWithAccount($tx->serviceOrder?->payment_method),
                 'transaction_type' => $tx->transaction_type,
                 'transaction_type_label' => config("pkdi.transaction_types.{$tx->transaction_type}", $tx->transaction_type),
                 'product_name' => $tx->product_name_snapshot,
@@ -613,7 +624,7 @@ class OrderPresenter
     public static function auditLogs(): array
     {
         $logs = AuditLog::query()
-            ->with('user')
+            ->with('user.clientCompany')
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->limit(50)
@@ -636,6 +647,8 @@ class OrderPresenter
             $newVals = is_array($log->new_values) ? $log->new_values : [];
             $entity = (string) ($newVals['order_number'] ?? $newVals['invoice_number'] ?? ($log->auditable_type.'#'.$log->auditable_id));
             $detail = (string) ($newVals['summary'] ?? $log->reason ?? "Aksi {$log->action} pada {$entity}");
+            $companyAddress = $newVals['company_address'] ?? ($newVals['address'] ?? ($log->user?->clientCompany?->address ?? null));
+            $googleMapsUrl = $newVals['google_maps_url'] ?? ($log->user?->clientCompany?->resolvedGoogleMapsUrl() ?? null);
 
             return [
                 'time' => $log->created_at?->timezone('Asia/Jakarta')->format('d M Y, H.i').' WIB',
@@ -646,6 +659,8 @@ class OrderPresenter
                 'action' => $log->action,
                 'entity' => $entity,
                 'detail' => $detail,
+                'company_address' => $companyAddress,
+                'google_maps_url' => $googleMapsUrl,
                 'reason' => $log->reason ?: '-',
             ];
         })->values()->all();

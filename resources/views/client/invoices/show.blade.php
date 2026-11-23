@@ -27,6 +27,11 @@
             <p class="mt-1 text-sm text-muted-foreground">
                 Referensi Pesanan: {{ implode(', ', $inv['order_numbers']) }} · Terbit {{ $inv['issue_date'] }} · Jatuh Tempo {{ $inv['due_date'] }}
             </p>
+            @if (!empty($inv['company_address']) && $inv['company_address'] !== '-')
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                    Alamat Perusahaan: {{ $inv['company_address'] }}
+                </p>
+            @endif
         </div>
         <div class="flex flex-wrap gap-2">
             <a href="{{ route('invoices.download-pdf', $invoiceSlug) }}" class="btn btn-outline">

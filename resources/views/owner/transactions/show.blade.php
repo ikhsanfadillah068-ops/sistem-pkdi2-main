@@ -21,15 +21,26 @@
     <div class="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
         <div class="space-y-6">
             <x-ui.detail-list title="1. Pengajuan Awal Client" :items="[
+                ['label' => 'Kode Pesanan', 'value' => $order['order_number']],
+                ['label' => 'Tanggal & Jam Pemesanan', 'value' => $order['submitted_at'] ?? '-'],
                 ['label' => 'Perusahaan Client', 'value' => $order['client_company']],
+                ['label' => 'Alamat / Wilayah Perusahaan', 'value' => $order['company_address'] ?? '-'],
                 ['label' => 'Jenis Transaksi', 'value' => $order['transaction_type_label']],
                 ['label' => 'Produk & Layanan', 'value' => $order['product_name'].' · '.$order['service_type']],
                 ['label' => 'Kuantitas Pengajuan', 'value' => $order['requested_qty'].' '.$order['unit']],
-                ['label' => 'Nomor PO & Tanggal PO', 'value' => ($order['po_number'] ?? '-').' · '.($order['po_date'] ?? '-')],
-                ['label' => 'Tanggal Penyerahan', 'value' => $order['needed_date'] ?? '-'],
+                ['label' => 'Tanggal Penyerahan / Terima', 'value' => $order['needed_date'] ?? '-'],
                 ['label' => 'Jenis Pembayaran', 'value' => $order['payment_method_display'] ?? ($order['payment_method'] ?: 'Belum dipilih')],
-                ['label' => 'Spesifikasi / Catatan', 'value' => $order['specification_notes'] ?? ($order['client_notes'] ?? '-')],
-            ]" />
+                ['label' => 'Catatan Tambahan, Warna & Penanganan', 'value' => $order['specification_notes'] ?? ($order['client_notes'] ?? '-')],
+            ]">
+                @if (!empty($order['google_maps_url']))
+                    <div class="min-w-0 sm:col-span-2">
+                        <a href="{{ $order['google_maps_url'] }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-accent hover:underline">
+                            <x-ui.icon name="map-pin" class="h-3.5 w-3.5" />
+                            Buka Titik Lokasi Perusahaan di Google Maps
+                        </a>
+                    </div>
+                @endif
+            </x-ui.detail-list>
 
             <x-ui.detail-list title="2. Operasional Gudang & Penyerahan" :items="[
                 ['label' => 'Penerimaan Fisik Drum', 'value' => !empty($order['receipt']) ? $order['receipt']['receipt_number'].' · '.$order['receipt']['actual_received_quantity'].' '.$order['receipt']['unit'].' ('.$order['receipt']['received_at'].')' : ($order['is_drum_sale'] ? 'Tidak berlaku untuk Penjualan Drum' : 'Belum dicatat')],

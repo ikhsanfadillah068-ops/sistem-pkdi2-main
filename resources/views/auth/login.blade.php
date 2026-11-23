@@ -85,6 +85,10 @@
                     <a href="{{ route('register') }}" class="font-semibold text-[#800000] hover:underline">Daftar Akun Client</a>
                 </div>
 
+                <div class="pt-1">
+                    <x-ui.puzzle-captcha id="login-puzzle-captcha" />
+                </div>
+
                 <button type="submit" class="mt-2 w-full cursor-pointer rounded-full bg-[#800000] px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:bg-[#660000] active:bg-[#4d0000] focus:outline-none focus:ring-2 focus:ring-[#800000] focus:ring-offset-2">
                     Masuk Sistem
                 </button>

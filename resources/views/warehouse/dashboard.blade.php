@@ -47,8 +47,12 @@
                                     </td>
                                     <td>
                                         <p class="font-medium">{{ $order['client_company'] }}</p>
-                                        @if (!empty($order['po_number']))
-                                            <p class="text-xs text-muted-foreground tabular-nums">PO: {{ $order['po_number'] }}</p>
+                                        <p class="mt-0.5 max-w-xs truncate text-xs text-muted-foreground" title="{{ $order['company_address'] ?? '-' }}">{{ $order['company_address'] ?? '-' }}</p>
+                                        @if (!empty($order['google_maps_url']))
+                                            <a href="{{ $order['google_maps_url'] }}" target="_blank" rel="noopener" class="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-brand-accent hover:underline">
+                                                <x-ui.icon name="map-pin" class="h-3 w-3" />
+                                                Buka Rute di Google Maps
+                                            </a>
                                         @endif
                                     </td>
                                     <td>
@@ -88,8 +92,20 @@
                             @forelse ($waitingReceiptOrSort as $order)
                                 @php($st = \App\Support\PkdiDemoData::statusMeta($order['order_status']))
                                 <tr>
-                                    <td class="font-semibold tabular-nums whitespace-nowrap">{{ $order['order_number'] }}</td>
-                                    <td>{{ $order['client_company'] }}</td>
+                                    <td class="whitespace-nowrap">
+                                        <p class="font-semibold tabular-nums">{{ $order['order_number'] }}</p>
+                                        <p class="text-xs text-muted-foreground">{{ $order['submitted_at'] }}</p>
+                                    </td>
+                                    <td>
+                                        <p class="font-medium">{{ $order['client_company'] }}</p>
+                                        <p class="mt-0.5 max-w-xs truncate text-xs text-muted-foreground" title="{{ $order['company_address'] ?? '-' }}">{{ $order['company_address'] ?? '-' }}</p>
+                                        @if (!empty($order['google_maps_url']))
+                                            <a href="{{ $order['google_maps_url'] }}" target="_blank" rel="noopener" class="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-brand-accent hover:underline">
+                                                <x-ui.icon name="map-pin" class="h-3 w-3" />
+                                                Buka Rute di Google Maps
+                                            </a>
+                                        @endif
+                                    </td>
                                     <td>{{ $order['product_name'] }} · {{ $order['service_type'] }}</td>
                                     <td class="tabular-nums whitespace-nowrap">
                                         {{ $order['requested_qty'] }} {{ $order['unit'] }}
@@ -130,8 +146,20 @@
                         <tbody>
                             @forelse ($activeWork as $order)
                                 <tr>
-                                    <td class="font-semibold tabular-nums whitespace-nowrap">{{ $order['order_number'] }}</td>
-                                    <td>{{ $order['client_company'] }}</td>
+                                    <td class="whitespace-nowrap">
+                                        <p class="font-semibold tabular-nums">{{ $order['order_number'] }}</p>
+                                        <p class="text-xs text-muted-foreground">{{ $order['submitted_at'] }}</p>
+                                    </td>
+                                    <td>
+                                        <p class="font-medium">{{ $order['client_company'] }}</p>
+                                        <p class="mt-0.5 max-w-xs truncate text-xs text-muted-foreground" title="{{ $order['company_address'] ?? '-' }}">{{ $order['company_address'] ?? '-' }}</p>
+                                        @if (!empty($order['google_maps_url']))
+                                            <a href="{{ $order['google_maps_url'] }}" target="_blank" rel="noopener" class="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-brand-accent hover:underline">
+                                                <x-ui.icon name="map-pin" class="h-3 w-3" />
+                                                Buka Rute di Google Maps
+                                            </a>
+                                        @endif
+                                    </td>
                                     <td>
                                         <p class="font-medium">{{ $order['product_name'] }} · {{ $order['service_type'] }}</p>
                                         <p class="text-xs text-muted-foreground">{{ $order['transaction_type_label'] }}</p>
@@ -172,8 +200,14 @@
                                 @php($st = \App\Support\PkdiDemoData::statusMeta($order['order_status']))
                                 @php($bst = $order['billing_status_meta'])
                                 <tr>
-                                    <td class="font-semibold tabular-nums whitespace-nowrap">{{ $order['order_number'] }}</td>
-                                    <td>{{ $order['client_company'] }}</td>
+                                    <td class="whitespace-nowrap">
+                                        <p class="font-semibold tabular-nums">{{ $order['order_number'] }}</p>
+                                        <p class="text-xs text-muted-foreground">{{ $order['submitted_at'] }}</p>
+                                    </td>
+                                    <td>
+                                        <p class="font-medium">{{ $order['client_company'] }}</p>
+                                        <p class="mt-0.5 max-w-xs truncate text-xs text-muted-foreground" title="{{ $order['company_address'] ?? '-' }}">{{ $order['company_address'] ?? '-' }}</p>
+                                    </td>
                                     <td class="tabular-nums whitespace-nowrap">
                                         {{ $order['result']['completed_qty'] ?? '-' }} {{ $order['unit'] }}
                                         @if (($order['result']['rejected_qty'] ?? 0) > 0)

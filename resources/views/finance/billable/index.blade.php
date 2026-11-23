@@ -113,9 +113,12 @@
                                 </td>
                                 <td class="whitespace-nowrap">
                                     <p class="font-semibold tabular-nums">{{ $tx['transaction_code'] }}</p>
-                                    <p class="text-xs text-muted-foreground tabular-nums">{{ $tx['order_number'] }} · {{ $tx['ready_at'] }}</p>
+                                    <p class="text-xs text-muted-foreground tabular-nums">{{ $tx['order_number'] }} · {{ $tx['order_submitted_at'] ?? $tx['ready_at'] }}</p>
                                 </td>
-                                <td>{{ $tx['client_company'] }}</td>
+                                <td>
+                                    <p class="font-medium">{{ $tx['client_company'] }}</p>
+                                    <p class="mt-0.5 max-w-xs truncate text-xs text-muted-foreground" title="{{ $tx['company_address'] ?? '-' }}">{{ $tx['company_address'] ?? '-' }}</p>
+                                </td>
                                 <td>
                                     <p class="font-medium">{{ $tx['product_name'] }} · {{ $tx['service_name'] }}</p>
                                     <p class="text-xs text-muted-foreground">{{ $tx['transaction_type_label'] }}</p>

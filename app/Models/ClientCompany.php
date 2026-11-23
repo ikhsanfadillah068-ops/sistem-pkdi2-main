@@ -17,12 +17,45 @@ class ClientCompany extends Model
         'email',
         'phone',
         'address',
+        'latitude',
+        'longitude',
+        'google_maps_url',
         'npwp',
         'nib_number',
         'nib_file_path',
         'documents_status',
         'verification_status',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'latitude' => 'float',
+            'longitude' => 'float',
+        ];
+    }
+
+    public static function buildGoogleMapsUrl(mixed $lat, mixed $lng, ?string $fallbackAddress = null): ?string
+    {
+        if ($lat !== null && $lat !== '' && $lng !== null && $lng !== '' && is_numeric($lat) && is_numeric($lng)) {
+            return sprintf('https://www.google.com/maps?q=%.6F,%.6F', (float) $lat, (float) $lng);
+        }
+
+        if ($fallbackAddress !== null && trim($fallbackAddress) !== '' && trim($fallbackAddress) !== '-') {
+            return 'https://www.google.com/maps/search/?api=1&query='.rawurlencode(trim($fallbackAddress));
+        }
+
+        return null;
+    }
+
+    public function resolvedGoogleMapsUrl(): ?string
+    {
+        if (filled($this->google_maps_url)) {
+            return $this->google_maps_url;
+        }
+
+        return self::buildGoogleMapsUrl($this->latitude, $this->longitude, $this->address);
+    }
 
     public function hasCompleteDocuments(): bool
     {

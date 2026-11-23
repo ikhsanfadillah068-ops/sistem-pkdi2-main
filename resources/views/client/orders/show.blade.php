@@ -31,22 +31,29 @@
     <x-ui.order-stepper :order="$order" />
 
     <div class="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-        <x-ui.detail-list title="Informasi Pengajuan & Kendaraan" :items="[
+        <x-ui.detail-list title="Informasi Pengajuan & Lokasi Penjemputan" :items="[
+            ['label' => 'Kode Pesanan', 'value' => $order['order_number']],
+            ['label' => 'Tanggal & Jam Pemesanan', 'value' => $order['submitted_at']],
+            ['label' => 'Perusahaan Pemohon', 'value' => $order['origin_company'] ?: $order['client_company']],
             ['label' => 'Kategori Layanan', 'value' => $order['service_category']],
-            ['label' => 'Jenis Muatan Awal', 'value' => $order['cargo_type']],
             ['label' => 'Layanan & Estimasi', 'value' => $order['service_type'].' ('.$order['requested_qty'].' '.$order['unit'].')'],
-            ['label' => 'Tanggal Penyerahan', 'value' => $order['needed_date'] ?: '-'],
-            ['label' => 'Nomor & Tanggal PO', 'value' => ($order['po_number'] ?: '-').(!empty($order['po_date']) ? ' · '.$order['po_date'] : '')],
+            ['label' => 'Jenis Limbah / Muatan Awal', 'value' => $order['cargo_type']],
+            ['label' => 'Tanggal Penyerahan / Terima', 'value' => $order['needed_date'] ?: '-'],
             ['label' => 'Jenis Pembayaran', 'value' => $order['payment_method_display'] ?? ($order['payment_method'] ?: 'Belum dipilih')],
-            ['label' => 'Asal Perusahaan', 'value' => $order['origin_company']],
-            ['label' => 'Jenis Kendaraan', 'value' => $order['vehicle_type']],
-            ['label' => 'Nomor Polisi', 'value' => $order['license_plate']],
-            ['label' => 'Nama Driver', 'value' => $order['driver_name'] ?: 'Tidak diisi'],
+            ['label' => 'Alamat Lokasi Penjemputan', 'value' => $order['company_address'] ?? '-'],
         ]">
-            @if (! empty($order['client_notes']))
+            @if (! empty($order['google_maps_url']))
                 <div class="min-w-0 sm:col-span-2">
-                    <dt class="text-xs font-medium text-muted-foreground">Catatan Pengajuan</dt>
-                    <dd class="mt-1 break-words text-sm font-medium">{{ $order['client_notes'] }}</dd>
+                    <a href="{{ $order['google_maps_url'] }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-accent hover:underline">
+                        <x-ui.icon name="map-pin" class="h-3.5 w-3.5" />
+                        Lihat Titik Lokasi di Google Maps
+                    </a>
+                </div>
+            @endif
+            @if (! empty($order['specification_notes']) || ! empty($order['client_notes']))
+                <div class="min-w-0 sm:col-span-2">
+                    <dt class="text-xs font-medium text-muted-foreground">Catatan Tambahan, Warna & Penanganan</dt>
+                    <dd class="mt-1 break-words text-sm font-medium">{{ $order['specification_notes'] ?: $order['client_notes'] }}</dd>
                 </div>
             @endif
         </x-ui.detail-list>

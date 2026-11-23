@@ -4,20 +4,23 @@
     $phone = old('phone', $company?->phone ?? '');
     $email = old('email', $company?->email ?? '');
     $address = old('address', $company?->address ?? '');
+    $latitude = old('latitude', $company?->latitude);
+    $longitude = old('longitude', $company?->longitude);
+    $googleMapsUrl = old('google_maps_url', $company?->resolvedGoogleMapsUrl());
     $npwp = old('npwp', $company?->npwp ?? '');
     $nibNumber = old('nib_number', $company?->nib_number ?? '');
     $docsComplete = $company?->documents_status === 'COMPLETE';
 @endphp
 <x-layouts.admin title="Profil Perusahaan" group="Perusahaan & Akun" role="client">
     <div class="flex flex-wrap items-center justify-between gap-3">
-        <x-ui.page-header title="Profil & Administrasi Perusahaan" description="Lengkapi identitas perusahaan, NPWP, dan dokumen NIB untuk keperluan operasional dan penagihan PKDI." />
+        <x-ui.page-header title="Profil & Lokasi Pabrik Perusahaan" description="Kelola identitas perusahaan, titik koordinat lokasi penjemputan, NPWP, dan dokumen NIB untuk operasional PKDI." />
         <x-ui.badge :variant="$docsComplete ? 'success' : 'warning'" :dot="true">
             Dokumen Administrasi: {{ $docsComplete ? 'Lengkap' : 'Belum Lengkap' }}
         </x-ui.badge>
     </div>
 
-    <x-ui.card title="Data Perusahaan Pelanggan">
-        <form action="{{ route('client.company.update') }}" method="POST" enctype="multipart/form-data" class="space-y-5 max-w-2xl" novalidate data-validate-form data-prevent-double-submit>
+    <x-ui.card title="Data & Titik Lokasi Perusahaan Pelanggan">
+        <form action="{{ route('client.company.update') }}" method="POST" enctype="multipart/form-data" class="space-y-5 max-w-3xl" novalidate data-validate-form data-prevent-double-submit>
             @csrf
             @method('PUT')
             <x-ui.field label="Nama Perusahaan (PT / CV)" name="company_name" :error="$errors->first('company_name')" required>
@@ -34,9 +37,39 @@
             <x-ui.field label="Email Kontak Perusahaan" name="email" :error="$errors->first('email')" required>
                 <x-ui.input name="email" type="email" :value="$email" :invalid="$errors->has('email')" required />
             </x-ui.field>
-            <x-ui.field label="Alamat Lengkap" name="address" :error="$errors->first('address')" required>
-                <x-ui.textarea name="address" rows="3" :invalid="$errors->has('address')" required>{{ $address }}</x-ui.textarea>
-            </x-ui.field>
+
+            <div class="border-t pt-5 space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <h2 class="text-sm font-semibold text-foreground">Lokasi Pabrik & Alamat Penjemputan Resmi</h2>
+                        <p class="text-xs text-muted-foreground">Perubahan lokasi hanya berlaku untuk pesanan baru; pesanan lama tetap menyimpan snapshot lokasi historisnya.</p>
+                    </div>
+                    @if (!empty($googleMapsUrl))
+                        <a href="{{ $googleMapsUrl }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                            <x-ui.icon name="map-pin" class="h-3.5 w-3.5" />
+                            Lihat Titik Lokasi di Google Maps
+                        </a>
+                    @endif
+                </div>
+
+                <x-ui.location-picker
+                    id="company-profile-map"
+                    targetSelector="textarea[name='address']"
+                    :latitude="$latitude"
+                    :longitude="$longitude"
+                    :googleMapsUrl="$googleMapsUrl"
+                    height="250px"
+                />
+
+                <x-ui.field
+                    label="Alamat Lengkap Perusahaan"
+                    name="address"
+                    help="Klik peta di atas atau tombol Gunakan Lokasi Saat Ini untuk auto-fill, lalu tambahkan detail blok pabrik, kavling, atau patokan gerbang bila perlu."
+                    :error="$errors->first('address')"
+                    required>
+                    <x-ui.textarea name="address" rows="3" :invalid="$errors->has('address')" required>{{ $address }}</x-ui.textarea>
+                </x-ui.field>
+            </div>
 
             <div class="border-t pt-5 space-y-4">
                 <div>

@@ -29,6 +29,14 @@
                             <td class="font-medium tabular-nums">{{ $log['entity'] }}</td>
                             <td class="text-xs">
                                 <p>{{ $log['detail'] }}</p>
+                                @if (!empty($log['company_address']))
+                                    <p class="mt-0.5 text-muted-foreground">
+                                        Lokasi/Alamat: {{ $log['company_address'] }}
+                                        @if (!empty($log['google_maps_url']))
+                                            · <a href="{{ $log['google_maps_url'] }}" target="_blank" rel="noopener" class="font-medium text-brand-accent hover:underline">Google Maps</a>
+                                        @endif
+                                    </p>
+                                @endif
                                 @if ($log['reason'] !== '-')
                                     <p class="mt-0.5 text-danger">Alasan: {{ $log['reason'] }}</p>
                                 @endif

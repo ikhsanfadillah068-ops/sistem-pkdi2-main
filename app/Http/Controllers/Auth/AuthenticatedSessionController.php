@@ -46,6 +46,8 @@ class AuthenticatedSessionController extends Controller
             'password.min' => 'Password minimal 8 karakter.',
         ]);
 
+        PuzzleCaptchaController::assertVerified($request);
+
         $email = Str::lower($validated['email']);
         $throttleKey = $email.'|'.$request->ip();
 
